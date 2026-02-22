@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(vertex_engine STATIC
     src/domain/user.cpp
     src/domain/wallet.cpp
+    src/application/exchange.cpp
 )
 
 target_include_directories(vertex_engine PUBLIC include)

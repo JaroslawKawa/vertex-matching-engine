@@ -19,7 +19,7 @@ namespace vertex::application
         if (!user_insert_result)
             return std::unexpected(ExchangeError::UserAlreadyExists);
 
-        auto [_, wallet_insert_result] = wallets_.emplace(user.id(), Wallet{});
+        auto [__, wallet_insert_result] = wallets_.emplace(user.id(), Wallet{});
 
         // Wallet with this user_id alread exists
         if (!wallet_insert_result)
