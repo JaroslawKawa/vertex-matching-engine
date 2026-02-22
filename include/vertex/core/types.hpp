@@ -2,10 +2,16 @@
 
 #include <cstdint>
 #include <string>
+#include "vertex/core/strong_id.hpp"
 
 namespace vertex::core{
-    using UserId = std::uint64_t;
-    using OrderId = std::uint64_t;
+
+    struct UserTag{};
+    struct OrderTag{};
+    
+
+    using UserId = StrongId<UserTag>;
+    using OrderId = StrongId<OrderTag>;
 
     using Price = std::int64_t; //price in small currency unit
     using Quantity = std::int64_t; //quantity in minimal lot unit
@@ -16,4 +22,4 @@ namespace vertex::core{
         Buy,
         Sell
     };
-}
+}// namespace vertex::core
