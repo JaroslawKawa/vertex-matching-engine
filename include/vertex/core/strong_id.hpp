@@ -1,37 +1,50 @@
 #pragma once
 #include <cstdint>
 #include <compare>
+#include <functional>
+
 
 namespace vertex::core
 {
+
     template <typename Tag>
     class StrongId
     {
     private:
-        std::uint64_t value_ = {0};
+        std::uint64_t value_{0};
 
     public:
-        StrongId() = default;
-        explicit StrongId(std::uint64_t);
-        bool is_valid() const;
+        constexpr StrongId() noexcept = default;
+        constexpr StrongId(std::uint64_t) noexcept;
+        constexpr bool is_valid() const noexcept;
         auto operator<=>(const StrongId &other) const = default;
-        std::uint64_t get_value() const;
+        constexpr std::uint64_t get_value() const noexcept;
     };
     template <typename Tag>
-    StrongId<Tag>::StrongId(std::uint64_t init) : value_{init} {};
+    constexpr StrongId<Tag>::StrongId(std::uint64_t init) noexcept : value_{init} {};
 
     template <typename Tag>
-    bool StrongId<Tag>::is_valid() const
+    constexpr bool StrongId<Tag>::is_valid() const noexcept
     {
         return value_ != 0;
     }
 
     template <typename Tag>
-    std::uint64_t StrongId<Tag>::get_value() const
+    constexpr std::uint64_t StrongId<Tag>::get_value() const noexcept
     {
         return value_;
     }
 
-    //TO DO HashFunction
+} // namespace vertex::core
 
-}// namespace vertex::core
+namespace std
+{
+    template <typename Tag>
+    struct hash<vertex::core::StrongId<Tag>>
+    {
+        size_t operator()(const vertex::core::StrongId<Tag> &id) const noexcept
+        {
+            return std::hash<std::uint64_t>{}(id.get_value());
+        }
+    };
+}
