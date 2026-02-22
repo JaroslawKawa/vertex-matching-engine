@@ -7,9 +7,9 @@ namespace vertex::domain
 
     Order::Order(OrderId order_id, UserId user_id, Symbol symbol, Side side, Quantity initial_quantity) : order_id_{order_id}, user_id_(user_id), symbol_(std::move(symbol)), side_(side), initial_quantity_(initial_quantity), remaining_quantity_(initial_quantity)
     {
-        assert(order_id.is_valid());
-        assert(user_id.is_valid());
-        assert(initial_quantity > 0);
+        assert(order_id_.is_valid());
+        assert(user_id_.is_valid());
+        assert(initial_quantity_ > 0);
     }
 
     OrderId Order::id() const noexcept
