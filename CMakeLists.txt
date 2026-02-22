@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(vertex_engine STATIC
     src/domain/user.cpp
     src/domain/wallet.cpp
+    src/domain/order.cpp
+    src/domain/limit_order.cpp
     src/application/exchange.cpp
 )
 

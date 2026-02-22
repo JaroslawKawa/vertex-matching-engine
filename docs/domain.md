@@ -189,8 +189,127 @@ Does not create entries.
 
 ---
 
+
+# Order
+
+## Responsibility
+
+Represents a trading order within the system.
+
+Order is a domain aggregate responsible for:
+
+- Identity (`OrderId`)
+- Ownership (`UserId`)
+- Instrument (`Symbol`)
+- Direction (`Side`)
+- Quantity lifecycle management
+
+Order contains business invariants and state transition logic
+but has no knowledge of:
+
+- MatchingEngine
+- Exchange
+- OrderBook
+- Persistence
+- Infrastructure
+
+---
+
+## State
+
+- `OrderId order_id_`
+- `UserId user_id_`
+- `Symbol symbol_`
+- `Side side_`
+- `Quantity initial_quantity_`
+- `Quantity remaining_quantity_`
+
+---
+
+## Invariants
+
+- `order_id` must be valid
+- `user_id` must be valid
+- `initial_quantity > 0`
+- `0 <= remaining_quantity <= initial_quantity`
+
+Invariant violations terminate the program via `assert`
+(because they represent internal engine bugs, not business errors).
+
+---
+
+## Quantity Lifecycle
+
+Orders start fully active:
+
+remaining_quantity = initial_quantity
+
+The only state mutation allowed is via:
+
+reduce(executed_quantity)
+
+Rules:
+
+- `executed_quantity > 0`
+- `executed_quantity <= remaining_quantity`
+
+When `remaining_quantity == 0`,
+the order is considered filled.
+
+---
+
+## Polymorphism
+
+Order is an abstract base class.
+
+It defines:
+
+virtual Price price() const = 0;
+
+Concrete order types must implement price semantics.
+
+---
+
+# LimitOrder
+
+## Responsibility
+
+Represents a limit order with a fixed price.
+
+Extends Order by adding:
+
+- `Price price_`
+
+---
+
+## Invariants
+
+- `price > 0`
+
+Price is immutable after construction.
+
+---
+
+## Behavior
+
+Implements:
+
+Price price() const noexcept override;
+
+LimitOrder does not introduce additional mutable state.
+
+---
+
+# Architectural Notes
+
+- Order does not generate its own ID.
+- ID generation is responsibility of higher layers (MatchingEngine).
+- Order enforces internal invariants via assert.
+- Wallet handles business validation via std::expected.
+- Domain layer never throws exceptions for control flow.
+
+---
+
 # Next Domain Components
 
-- Order
-- LimitOrder
 - Trade
