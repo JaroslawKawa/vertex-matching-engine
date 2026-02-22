@@ -4,12 +4,12 @@
 #include <expected>
 #include "vertex/core/types.hpp"
 
-using Quantity = vertex::core::Quantity;
-using Symbol = vertex::core::Symbol;
-
 namespace vertex::domain
 {
-    enum class WalletError{
+    using Quantity = vertex::core::Quantity;
+    using Symbol = vertex::core::Symbol;
+    enum class WalletError
+    {
         InsufficientFunds,
         InsufficientReserved,
         InvalidAmount
@@ -28,12 +28,12 @@ namespace vertex::domain
 
     public:
         Wallet() = default;
-        std::expected<void, WalletError> deposit(const Symbol& symbol, const Quantity amount);
-        std::expected<void, WalletError> withdraw(const Symbol& symbol, const Quantity amount);
-        std::expected<void, WalletError> reserve(const Symbol& symbol, const Quantity amount);
-        std::expected<void, WalletError> release(const Symbol& symbol, const Quantity amount);
-        
-        Quantity free_balance(const Symbol& symbol) const;
-        Quantity reserved_balance(const Symbol& symbol) const;
+        std::expected<void, WalletError> deposit(const Symbol &symbol, const Quantity amount);
+        std::expected<void, WalletError> withdraw(const Symbol &symbol, const Quantity amount);
+        std::expected<void, WalletError> reserve(const Symbol &symbol, const Quantity amount);
+        std::expected<void, WalletError> release(const Symbol &symbol, const Quantity amount);
+
+        Quantity free_balance(const Symbol &symbol) const;
+        Quantity reserved_balance(const Symbol &symbol) const;
     };
 } // namespace vertex::domain
