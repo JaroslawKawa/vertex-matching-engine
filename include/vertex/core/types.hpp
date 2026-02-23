@@ -17,6 +17,7 @@ namespace vertex::core{
     using TradeId = StrongId<TradeTag>;
     
     using Asset = StrongAsset<AssetTag>;
+    using Market = vertex::core::Market;
     
     using Price = std::int64_t; //price in small currency unit
     using Quantity = std::int64_t; //quantity in minimal lot unit
