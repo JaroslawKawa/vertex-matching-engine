@@ -7,7 +7,7 @@
 namespace vertex::domain
 {
     using Quantity = vertex::core::Quantity;
-    using Symbol = vertex::core::Symbol;
+    using Asset = vertex::core::Asset;
     enum class WalletError
     {
         InsufficientFunds,
@@ -24,16 +24,16 @@ namespace vertex::domain
     class Wallet
     {
     private:
-        std::unordered_map<Symbol, Balance> balances_{};
+        std::unordered_map<Asset, Balance> balances_{};
 
     public:
         Wallet() = default;
-        std::expected<void, WalletError> deposit(const Symbol &symbol, const Quantity amount);
-        std::expected<void, WalletError> withdraw(const Symbol &symbol, const Quantity amount);
-        std::expected<void, WalletError> reserve(const Symbol &symbol, const Quantity amount);
-        std::expected<void, WalletError> release(const Symbol &symbol, const Quantity amount);
+        std::expected<void, WalletError> deposit(const Asset &asset, const Quantity amount);
+        std::expected<void, WalletError> withdraw(const Asset &asset, const Quantity amount);
+        std::expected<void, WalletError> reserve(const Asset &asset, const Quantity amount);
+        std::expected<void, WalletError> release(const Asset &asset, const Quantity amount);
 
-        Quantity free_balance(const Symbol &symbol) const;
-        Quantity reserved_balance(const Symbol &symbol) const;
+        Quantity free_balance(const Asset &asset) const;
+        Quantity reserved_balance(const Asset &asset) const;
     };
 } // namespace vertex::domain
