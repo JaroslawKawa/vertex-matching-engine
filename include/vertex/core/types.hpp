@@ -4,7 +4,9 @@
 #include <string>
 
 #include "vertex/core/asset.hpp"
+#include "vertex/core/market.hpp"
 #include "vertex/core/strong_id.hpp"
+
 namespace vertex::core{
 
     struct UserTag{};
@@ -17,8 +19,6 @@ namespace vertex::core{
     using TradeId = StrongId<TradeTag>;
     
     using Asset = StrongAsset<AssetTag>;
-    using Market = vertex::core::Market;
-    
     using Price = std::int64_t; //price in small currency unit
     using Quantity = std::int64_t; //quantity in minimal lot unit
 
