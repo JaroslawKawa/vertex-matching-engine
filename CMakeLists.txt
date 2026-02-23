@@ -12,6 +12,7 @@ add_library(vertex_engine STATIC
     src/domain/limit_order.cpp
     src/domain/trade.cpp
     src/application/exchange.cpp
+    src/engine/order_book.cpp
 )
 
 target_include_directories(vertex_engine PUBLIC include)
