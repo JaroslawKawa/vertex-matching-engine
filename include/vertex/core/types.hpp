@@ -8,11 +8,12 @@ namespace vertex::core{
 
     struct UserTag{};
     struct OrderTag{};
-    
+    struct TradeTag{};
 
     using UserId = StrongId<UserTag>;
     using OrderId = StrongId<OrderTag>;
-
+    using TradeId = StrongId<TradeTag>;
+    
     using Price = std::int64_t; //price in small currency unit
     using Quantity = std::int64_t; //quantity in minimal lot unit
 
