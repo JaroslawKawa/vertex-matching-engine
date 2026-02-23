@@ -3,6 +3,7 @@
 This document describes low-level foundational components of the vertex-matching-engine.
 
 Core components provide:
+
 - Strong type safety
 - ID generation
 - Fundamental system primitives
@@ -18,6 +19,7 @@ Core layer contains no business logic and no infrastructure logic.
 Provides strongly-typed identifiers to prevent accidental mixing of domain IDs.
 
 Examples:
+
 - `UserId`
 - `OrderId`
 - `TradeId`
@@ -26,16 +28,12 @@ Prevents bugs such as assigning an OrderId to a UserId.
 
 ## Design
 
-
 template<typename Tag>
 class StrongId
 
-
 Each Tag creates a distinct type at compile time:
 
-
 StrongId<UserTag> != StrongId<OrderTag>
-
 
 ## Properties
 
@@ -54,23 +52,17 @@ StrongId<UserTag> != StrongId<OrderTag>
 
 ### Constructor
 
-
 explicit StrongId(std::uint64_t value)
-
 
 ### isValid()
 
-
 bool isValid() const
-
 
 Returns true if ID is non-zero.
 
 ### getValue()
 
-
 std::uint64_t getValue() const
-
 
 Exposes underlying numeric value.
 
@@ -83,6 +75,7 @@ Exposes underlying numeric value.
 Generates monotonically increasing, strongly-typed identifiers.
 
 Designed to be:
+
 - Lock-free
 - Thread-safe
 - Low-overhead
@@ -95,10 +88,7 @@ Enforced via trait-based `static_assert`.
 
 ## Internal State
 
-
-std::atomicstd::uint64_t
- counter{0};
-
+std::atomic<std::uint64_t> counter{0};
 
 ## Behavior
 
@@ -110,9 +100,7 @@ std::atomicstd::uint64_t
 
 ### next()
 
-
-T next()
-
+T next();
 
 Returns a new unique identifier.
 
@@ -130,11 +118,91 @@ Returns a new unique identifier.
 
 ---
 
+# Asset
+
+## Responsibility
+
+Represents a single tradable instrument (e.g., BTC, USDT).
+
+Asset is a strongly-typed wrapper around a normalized string identifier.
+
+## Design
+
+using Asset = StrongAsset<AssetTag>;
+
+## Properties
+
+- Explicit constructor from `std::string`
+- Internally normalized to uppercase
+- Immutable after construction
+- Value type (copyable, comparable)
+- Hashable
+- Defaulted three-way comparison
+
+## Invariants
+
+- Name must not be empty
+- Name is stored in uppercase form
+
+## Purpose
+
+Separates asset identity from trading pair identity.
+
+Used by:
+
+- Wallet (balances per asset)
+- Market (base and quote assets)
+
+---
+
+# Market
+
+## Responsibility
+
+Represents a trading pair between two distinct assets.
+
+Examples:
+
+- BTC / USDT
+- ETH / USDT
+
+Market is a value-type that describes a matching context.
+
+## Design
+
+class Market
+{
+    Asset base;
+    Asset quote;
+}
+
+## Properties
+
+- Immutable after construction
+- Value type
+- Hashable
+- Defaulted three-way comparison
+- No business logic
+
+## Invariants
+
+- base != quote
+
+## Purpose
+
+- Used by MatchingEngine as key for order books
+- Defines the settlement direction:
+  - BUY → pay quote, receive base
+  - SELL → pay base, receive quote
+
+---
+
 # Architectural Notes
 
 - Core layer contains no domain knowledge.
 - StrongId prevents category errors at compile time.
 - IdGenerator separates ID creation from entity construction.
+- Asset and Market separate instrument identity from trading context.
 - Exchange is responsible for owning ID generators.
 
 ---
@@ -150,7 +218,8 @@ Includes:
 - `TradeId`
 - `Price`
 - `Quantity`
-- `Symbol`
+- `Asset`
+- `Market`
 - `Side`
 
 Core types provide foundational building blocks for higher layers.
