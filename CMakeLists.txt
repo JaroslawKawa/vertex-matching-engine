@@ -13,6 +13,7 @@ add_library(vertex_engine STATIC
     src/domain/trade.cpp
     src/application/exchange.cpp
     src/engine/order_book.cpp
+    src/engine/matching_engine.cpp
 )
 
 target_include_directories(vertex_engine PUBLIC include)

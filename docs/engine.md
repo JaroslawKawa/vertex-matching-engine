@@ -220,6 +220,103 @@ Invariant violations are fatal (assert).
 
 ---
 
+# MatchingEngine
+
+## Responsibility
+
+MatchingEngine coordinates multiple OrderBook instances.
+
+Each registered `Symbol` has exactly one corresponding OrderBook.
+
+MatchingEngine is responsible for:
+
+- Managing the lifecycle of OrderBook per Symbol
+- Routing incoming orders to the correct OrderBook
+- Routing cancel requests to the correct OrderBook
+- Enforcing engine-level configuration invariants
+
+MatchingEngine does NOT:
+
+- Perform matching itself
+- Generate identifiers
+- Know about users or wallets
+- Create Trade objects
+- Implement business validation
+
+---
+
+## Internal State
+
+
+std::unordered_map<Symbol, OrderBook>
+
+
+Each Symbol must be explicitly registered before use.
+
+Implicit creation of OrderBook is not allowed.
+
+---
+
+## Symbol Registration
+
+
+void register_symbol(const Symbol&);
+
+
+Behavior:
+
+- Creates a new OrderBook for the given Symbol
+- Asserts if the Symbol already exists
+- Must be called before accepting orders for that Symbol
+
+Lack of a registered Symbol is considered a configuration error
+and treated as a fatal invariant violation.
+
+---
+
+## Order Routing
+
+
+std::vector<Execution>
+add_order(std::unique_ptr<Order>);
+
+
+Behavior:
+
+- Extracts Symbol from Order
+- Asserts that the corresponding OrderBook exists
+- Delegates matching to OrderBook
+- Returns Execution results unchanged
+
+---
+
+## Cancel Routing
+
+
+std::optional<CancelResult>
+cancel(const Symbol&, OrderId);
+
+
+Behavior:
+
+- Locates OrderBook by Symbol
+- Asserts that Symbol exists
+- Delegates cancellation to OrderBook
+- Returns CancelResult from OrderBook
+
+---
+
+## Invariants
+
+- Every active Symbol has exactly one OrderBook
+- No implicit OrderBook creation occurs
+- Symbol absence during order routing is a configuration error
+- MatchingEngine contains no business-level validation
+
+MatchingEngine is a deterministic routing layer within Engine.
+
+---
+
 # Architectural Notes
 
 Engine layer is:
