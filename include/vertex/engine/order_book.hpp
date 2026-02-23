@@ -10,7 +10,7 @@
 #include "vertex/domain/order.hpp"
 namespace vertex::engine
 {
-    using Symbol = vertex::core::Symbol;
+    using Market = vertex::core::Market;
     using Quantity = vertex::core::Quantity;
     using Side = vertex::core::Side;
     using Price = vertex::core::Price;
@@ -46,13 +46,13 @@ namespace vertex::engine
     class OrderBook
     {
     private:
-        const Symbol symbol_;
+        const Market market_;
         std::map<Price, PriceLevel, std::greater<>> bids_{}; // buyers list
         std::map<Price, PriceLevel, std::less<>> asks_{};    // seller list
         std::unordered_map<OrderId, OrderLocation> index_{};
 
     public:
-        explicit OrderBook(Symbol symbol);
+        explicit OrderBook(Market market);
         std::vector<Execution> add_order(std::unique_ptr<Order> order);
         std::optional<CancelResult> cancel(OrderId order_id);
         std::optional<Price> best_bid() const;
