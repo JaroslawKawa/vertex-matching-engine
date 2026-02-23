@@ -20,6 +20,7 @@ Provides strongly-typed identifiers to prevent accidental mixing of domain IDs.
 Examples:
 - `UserId`
 - `OrderId`
+- `TradeId`
 
 Prevents bugs such as assigning an OrderId to a UserId.
 
@@ -146,6 +147,7 @@ Includes:
 
 - `UserId`
 - `OrderId`
+- `TradeId`
 - `Price`
 - `Quantity`
 - `Symbol`

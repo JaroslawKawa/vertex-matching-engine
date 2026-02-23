@@ -310,6 +310,66 @@ LimitOrder does not introduce additional mutable state.
 
 ---
 
-# Next Domain Components
+# Trade
 
-- Trade
+## Responsibility
+
+Represents an immutable fact of execution resulting from matching
+a buy and a sell order.
+
+Trade is a domain aggregate that:
+
+- Links two orders (`buy_order_id`, `sell_order_id`)
+- Captures execution details (`symbol`, `quantity`, `price`)
+- Enforces strict internal invariants
+- Contains no business process logic
+
+Trade does not:
+
+- Modify orders
+- Update wallets
+- Know about users
+- Perform matching
+- Generate its own ID
+
+---
+
+## State
+
+- `TradeId trade_id_`
+- `OrderId buy_order_id_`
+- `OrderId sell_order_id_`
+- `Symbol symbol_`
+- `Quantity quantity_`
+- `Price price_`
+
+All members are immutable after construction.
+
+---
+
+## Invariants
+
+The constructor enforces:
+
+- `trade_id` must be valid
+- `buy_order_id` must be valid
+- `sell_order_id` must be valid
+- `buy_order_id != sell_order_id`
+- `symbol` must be non-empty
+- `quantity > 0`
+- `price > 0`
+
+Invariant violations terminate the program via `assert`,
+as they represent internal engine errors.
+
+---
+
+## Design Properties
+
+- Immutable (value-like semantics)
+- No polymorphism
+- No exception-based error handling
+- No infrastructure dependencies
+- No ownership of external aggregates
+
+Trade represents a completed, irreversible market event.
