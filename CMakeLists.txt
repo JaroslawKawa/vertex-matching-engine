@@ -10,6 +10,7 @@ add_library(vertex_engine STATIC
     src/domain/wallet.cpp
     src/domain/order.cpp
     src/domain/limit_order.cpp
+    src/domain/trade.cpp
     src/application/exchange.cpp
 )
 
