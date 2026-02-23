@@ -5,7 +5,7 @@
 namespace vertex::domain
 {
 
-    Order::Order(OrderId order_id, UserId user_id, Symbol symbol, Side side, Quantity initial_quantity) : order_id_{order_id}, user_id_(user_id), symbol_(std::move(symbol)), side_(side), initial_quantity_(initial_quantity), remaining_quantity_(initial_quantity)
+    Order::Order(OrderId order_id, UserId user_id, Market market, Side side, Quantity initial_quantity) : order_id_{order_id}, user_id_(user_id), market_(market), side_(side), initial_quantity_(initial_quantity), remaining_quantity_(initial_quantity)
     {
         assert(order_id_.is_valid());
         assert(user_id_.is_valid());
@@ -22,9 +22,9 @@ namespace vertex::domain
         return user_id_;
     }
 
-    const Symbol &Order::symbol() const noexcept
+    const Market &Order::market() const noexcept
     {
-        return symbol_;
+        return market_;
     }
 
     Side Order::side() const noexcept
