@@ -16,7 +16,7 @@ The Engine layer operates purely on orders.
 
 OrderBook represents a single-instrument matching engine.
 
-Each OrderBook instance manages exactly one `Symbol`.
+Each OrderBook instance manages exactly one `Asset`.
 
 It is responsible for:
 
@@ -214,7 +214,7 @@ These are state queries and do not represent errors.
 - All active orders exist in index_
 - No OrderId exists twice
 - remaining_quantity > 0 for all active orders
-- All orders belong to the OrderBook's Symbol
+- All orders belong to the OrderBook's Asset
 
 Invariant violations are fatal (assert).
 
@@ -226,11 +226,11 @@ Invariant violations are fatal (assert).
 
 MatchingEngine coordinates multiple OrderBook instances.
 
-Each registered `Symbol` has exactly one corresponding OrderBook.
+Each registered `Asset` has exactly one corresponding OrderBook.
 
 MatchingEngine is responsible for:
 
-- Managing the lifecycle of OrderBook per Symbol
+- Managing the lifecycle of OrderBook per Asset
 - Routing incoming orders to the correct OrderBook
 - Routing cancel requests to the correct OrderBook
 - Enforcing engine-level configuration invariants
@@ -248,28 +248,28 @@ MatchingEngine does NOT:
 ## Internal State
 
 
-std::unordered_map<Symbol, OrderBook>
+std::unordered_map<Asset, OrderBook>
 
 
-Each Symbol must be explicitly registered before use.
+Each Asset must be explicitly registered before use.
 
 Implicit creation of OrderBook is not allowed.
 
 ---
 
-## Symbol Registration
+## Asset Registration
 
 
-void register_symbol(const Symbol&);
+void register_asset(const Asset&);
 
 
 Behavior:
 
-- Creates a new OrderBook for the given Symbol
-- Asserts if the Symbol already exists
-- Must be called before accepting orders for that Symbol
+- Creates a new OrderBook for the given Asset
+- Asserts if the Asset already exists
+- Must be called before accepting orders for that Asset
 
-Lack of a registered Symbol is considered a configuration error
+Lack of a registered Asset is considered a configuration error
 and treated as a fatal invariant violation.
 
 ---
@@ -283,7 +283,7 @@ add_order(std::unique_ptr<Order>);
 
 Behavior:
 
-- Extracts Symbol from Order
+- Extracts Asset from Order
 - Asserts that the corresponding OrderBook exists
 - Delegates matching to OrderBook
 - Returns Execution results unchanged
@@ -294,13 +294,13 @@ Behavior:
 
 
 std::optional<CancelResult>
-cancel(const Symbol&, OrderId);
+cancel(const Asset&, OrderId);
 
 
 Behavior:
 
-- Locates OrderBook by Symbol
-- Asserts that Symbol exists
+- Locates OrderBook by Asset
+- Asserts that Asset exists
 - Delegates cancellation to OrderBook
 - Returns CancelResult from OrderBook
 
@@ -308,9 +308,9 @@ Behavior:
 
 ## Invariants
 
-- Every active Symbol has exactly one OrderBook
+- Every active Asset has exactly one OrderBook
 - No implicit OrderBook creation occurs
-- Symbol absence during order routing is a configuration error
+- Asset absence during order routing is a configuration error
 - MatchingEngine contains no business-level validation
 
 MatchingEngine is a deterministic routing layer within Engine.
