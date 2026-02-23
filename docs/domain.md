@@ -61,7 +61,7 @@ Returns user name (no copy).
 
 Represents a per-user asset ledger.
 
-Tracks balances per symbol with separation between:
+Tracks balances per asset with separation between:
 - free balance
 - reserved balance
 
@@ -72,7 +72,7 @@ Wallet is:
 
 ## Invariants
 
-For every symbol:
+For every asset:
 
 - `free >= 0`
 - `reserved >= 0`
@@ -82,7 +82,7 @@ Operations must never violate these conditions.
 ## Internal State
 
 
-unordered_map<Symbol, Balance> balances_;
+unordered_map<Asset, Balance> balances_;
 
 
 ### Balance
@@ -114,10 +114,10 @@ No exceptions are thrown.
 
 ## Public API
 
-### deposit(symbol, amount)
+### deposit(asset, amount)
 
 **Behavior:**
-- Creates symbol entry if it does not exist.
+- Creates asset entry if it does not exist.
 - Increases free balance.
 
 **Errors:**
@@ -125,7 +125,7 @@ No exceptions are thrown.
 
 ---
 
-### withdraw(symbol, amount)
+### withdraw(asset, amount)
 
 **Behavior:**
 - Decreases free balance.
@@ -134,11 +134,11 @@ No exceptions are thrown.
 - InvalidAmount
 - InsufficientFunds
 
-Symbol absence is treated as zero balance.
+Asset absence is treated as zero balance.
 
 ---
 
-### reserve(symbol, amount)
+### reserve(asset, amount)
 
 **Behavior:**
 - Moves funds from free → reserved.
@@ -149,7 +149,7 @@ Symbol absence is treated as zero balance.
 
 ---
 
-### release(symbol, amount)
+### release(asset, amount)
 
 **Behavior:**
 - Moves funds from reserved → free.
@@ -160,21 +160,21 @@ Symbol absence is treated as zero balance.
 
 ---
 
-### free_balance(symbol)
+### free_balance(asset)
 
 Returns:
 - free balance
-- 0 if symbol does not exist
+- 0 if asset does not exist
 
 Does not create entries.
 
 ---
 
-### reserved_balance(symbol)
+### reserved_balance(asset)
 
 Returns:
 - reserved balance
-- 0 if symbol does not exist
+- 0 if asset does not exist
 
 Does not create entries.
 
@@ -184,7 +184,7 @@ Does not create entries.
 
 - Wallet does not know about UserId.
 - Exchange is responsible for mapping UserId → Wallet.
-- Wallet does not manage symbol registry (future responsibility of Exchange).
+- Wallet does not manage asset registry (future responsibility of Exchange).
 - Overflow handling is currently not implemented (MVP assumption).
 
 ---
@@ -200,7 +200,7 @@ Order is a domain aggregate responsible for:
 
 - Identity (`OrderId`)
 - Ownership (`UserId`)
-- Instrument (`Symbol`)
+- Instrument (`Asset`)
 - Direction (`Side`)
 - Quantity lifecycle management
 
@@ -219,7 +219,7 @@ but has no knowledge of:
 
 - `OrderId order_id_`
 - `UserId user_id_`
-- `Symbol symbol_`
+- `Asset asset_`
 - `Side side_`
 - `Quantity initial_quantity_`
 - `Quantity remaining_quantity_`
@@ -320,7 +320,7 @@ a buy and a sell order.
 Trade is a domain aggregate that:
 
 - Links two orders (`buy_order_id`, `sell_order_id`)
-- Captures execution details (`symbol`, `quantity`, `price`)
+- Captures execution details (`asset`, `quantity`, `price`)
 - Enforces strict internal invariants
 - Contains no business process logic
 
@@ -339,7 +339,7 @@ Trade does not:
 - `TradeId trade_id_`
 - `OrderId buy_order_id_`
 - `OrderId sell_order_id_`
-- `Symbol symbol_`
+- `Asset asset_`
 - `Quantity quantity_`
 - `Price price_`
 
@@ -355,7 +355,7 @@ The constructor enforces:
 - `buy_order_id` must be valid
 - `sell_order_id` must be valid
 - `buy_order_id != sell_order_id`
-- `symbol` must be non-empty
+- `asset` must be non-empty
 - `quantity > 0`
 - `price > 0`
 
