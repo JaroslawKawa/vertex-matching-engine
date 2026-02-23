@@ -7,12 +7,12 @@ namespace vertex::engine
 
     using Side = vertex::core::Side;
 
-    OrderBook::OrderBook(Symbol symbol) : symbol_(std::move(symbol)) {}
+    OrderBook::OrderBook(Market market) : market_(market) {}
 
     std::vector<Execution> OrderBook::add_order(std::unique_ptr<Order> order)
     {
         assert(order != nullptr);
-        assert(order->symbol() == symbol_);
+        assert(order->market() == market_);
 
         OrderId order_id = order.get()->id();
         Price price = order.get()->price();
