@@ -22,8 +22,6 @@ namespace vertex::core{
     using Price = std::int64_t; //price in small currency unit
     using Quantity = std::int64_t; //quantity in minimal lot unit
 
-    using Symbol = std::string;
-
     enum class Side {
         Buy,
         Sell
