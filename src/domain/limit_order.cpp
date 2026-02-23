@@ -5,7 +5,7 @@
 namespace vertex::domain
 {
 
-    LimitOrder::LimitOrder(OrderId order_id, UserId user_id, Symbol symbol, Side side, Quantity initial_quantity, Price price) : Order(order_id, user_id, std::move(symbol), side, initial_quantity),
+    LimitOrder::LimitOrder(OrderId order_id, UserId user_id, Market market, Side side, Quantity initial_quantity, Price price) : Order(order_id, user_id, market, side, initial_quantity),
                                                                                                                                  price_(price)
     {
         assert(price_ > 0);
