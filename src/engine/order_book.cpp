@@ -9,7 +9,7 @@ namespace vertex::engine
 
     OrderBook::OrderBook(Market market) : market_(market) {}
 
-    std::vector<Execution> OrderBook::add_limit_order(std::unique_ptr<Order> order)
+    std::vector<Execution> OrderBook::add_limit_order(std::unique_ptr<LimitOrder> order)
     {
         assert(order != nullptr);
         assert(order->market() == market_);
@@ -126,11 +126,9 @@ namespace vertex::engine
         return result;
     }
 
-    std::vector<Execution> OrderBook::execute_market_order(std::unique_ptr<Order> order)
+    std::vector<Execution> OrderBook::execute_market_order(std::unique_ptr<MarketOrder> order)
     {
         assert(order != nullptr);
-        auto *market = dynamic_cast<MarketOrder *>(order.get());
-        assert(market && "execute_market_order requires MarketOrder");
         assert(order->market() == market_);
 
         OrderId order_id = order->id();
