@@ -1,172 +1,70 @@
 # Application Layer
 
-This document describes the application-level orchestration components
-of the vertex-matching-engine.
+This document reflects the current implementation in `include/vertex/application/exchange.hpp` and `src/application/exchange.cpp`.
 
-The Application layer coordinates domain objects and exposes
-system use-cases.
+## Scope
 
-It contains no matching logic and no infrastructure concerns.
+`Exchange` orchestrates users, wallets, market registration, order placement, and settlement effects from engine executions.
 
----
+Owned state:
 
-# Exchange
+- `users_`: `unordered_map<UserId, User>`
+- `wallets_`: `unordered_map<UserId, Wallet>`
+- `orders_`: `unordered_map<OrderId, UserId>`
+- `orders_market_`: `unordered_map<OrderId, Market>`
+- generators: `UserIdGenerator`, `OrderIdGenerator`, `TradeIdGenerator`
+- `matching_engine_`
 
-## Responsibility
+## Errors
 
-Exchange is the application-level service responsible for:
+Current enums:
 
-- Managing user lifecycle
-- Owning User and Wallet aggregates
-- Validating user existence
-- Delegating financial operations to Wallet
-- Mapping domain errors to application-level errors
-- Enforcing system invariants
+- `UserError`: `UserNotFound`, `UserAlreadyExists`, `EmptyName`
+- `WalletOperationError`: `UserNotFound`, `InsufficientFunds`, `InsufficientReserved`, `InvalidAmount`
+- `PlaceOrderError`: `MarketNotListed`, `UserNotFound`, `WalletNotFound`, `InsufficientFunds`, `InvalidQuantity`, `InvalidAmount`
+- `RegisterMarketError`: `AlreadyListed`, `InvalidMarket`
 
-Exchange does NOT:
+Note: some enum values are currently unused (`WalletNotFound`, `InvalidMarket`).
 
-- Implement matching logic
-- Expose Wallet directly
-- Perform infrastructure operations
-- Persist data
+## Public API
 
----
+User:
 
-# Ownership Model
+- `create_user(name)`
+- `get_user_name(user_id)`
+- `user_exists(user_id)`
 
-Exchange owns:
+Wallet passthrough:
 
-- `std::unordered_map<UserId, User>`
-- `std::unordered_map<UserId, Wallet>`
-- `IdGenerator<UserId>`
+- `deposit`, `withdraw`, `reserve`, `release`
+- `free_balance`, `reserved_balance`
 
-Invariant:
+Market and trading:
 
-For every existing `UserId`, there exists exactly one `Wallet`.
+- `register_market(market)`
+- `place_limit_order(user_id, market, side, price, quantity)`
 
-No Wallet exists without a corresponding User.
+## Current order placement flow
 
----
+`place_limit_order` currently performs:
 
-# Error Model
+1. input checks (`user_id`, market presence, `quantity`, user wallet presence, `price`)
+2. reserve funds
+3. create `LimitOrder`
+4. store ownership/index mappings (`orders_`, `orders_market_`)
+5. route order to `matching_engine_.add_order`
+6. for each `Execution`, settle wallets:
+- buyer consumes quote reserved
+- buyer receives quote refund when `buy_limit > execution_price`
+- buyer receives base asset
+- seller consumes base reserved
+- seller receives quote asset
+7. update `OrderPlacementResult` filled/remaining
+8. create `Trade` object (currently not persisted)
+9. remove fully filled orders from ownership maps
 
-Exchange exposes `ExchangeError`.
+## Known Gaps / Current Risks
 
-ExchangeError represents business-level failures.
-
-Domain errors (`WalletError`) are translated into ExchangeError.
-
-System-level invariant violations are treated as fatal
-(assert + terminate).
-
----
-
-# Public API
-
-## User Management
-
-### create_user(std::string name)
-
-Creates a new user and associated wallet.
-
-Constraints:
-
-- Name must be non-empty.
-- ID is generated internally.
-- Strong invariant guarantees are enforced.
-
-Returns:
-- `UserId` on success
-- `ExchangeError` on failure
-
----
-
-## Financial Operations
-
-Exchange delegates all balance logic to Wallet.
-
-### deposit(UserId, Symbol, Quantity)
-
-Increases free balance.
-
-Possible errors:
-- UserNotFound
-- InvalidAmount
-
----
-
-### withdraw(UserId, Symbol, Quantity)
-
-Decreases free balance.
-
-Possible errors:
-- UserNotFound
-- InvalidAmount
-- InsufficientFunds
-
----
-
-### reserve(UserId, Symbol, Quantity)
-
-Moves funds from free to reserved.
-
-Possible errors:
-- UserNotFound
-- InvalidAmount
-- InsufficientFunds
-
----
-
-### release(UserId, Symbol, Quantity)
-
-Moves funds from reserved to free.
-
-Possible errors:
-- UserNotFound
-- InvalidAmount
-- InsufficientReserved
-
----
-
-## Read Operations
-
-### free_balance(UserId, Symbol)
-
-Returns free balance.
-
-- If symbol does not exist → returns 0
-- If user does not exist → error
-
----
-
-### reserved_balance(UserId, Symbol)
-
-Returns reserved balance.
-
-- If symbol does not exist → returns 0
-- If user does not exist → error
-
----
-
-### user_exists(UserId)
-
-Returns boolean indicating existence.
-
----
-
-### get_user_name(UserId)
-
-Returns user name.
-
-Possible errors:
-- UserNotFound
-
----
-
-# Architectural Notes
-
-- Exchange is an application service, not a domain entity.
-- Wallet invariants are enforced in Domain layer.
-- Exchange ensures cross-aggregate consistency.
-- No infrastructure dependencies exist at this layer.
-- Designed to integrate with MatchingEngine in future steps.
+- In current code, market-not-listed check in `place_limit_order` is inverted (`if (matching_engine_.has_market(market)) return MarketNotListed;`). This should be negated to match intended behavior.
+- `register_market` does not currently validate `InvalidMarket`; only duplicate check (`AlreadyListed`) is implemented.
+- Trade history storage is not implemented yet (trade object is created and dropped).
