@@ -90,6 +90,26 @@ namespace vertex::domain
         return {};
     }
 
+    std::expected<void, WalletError> Wallet::consume_reserved(const Asset& asset, Quantity amount){
+        // Invalid amount
+        if (amount <= 0)
+            return std::unexpected(WalletError::InvalidAmount);
+
+        auto it_asset = balances_.find(asset);
+
+        // Asset not exists in wallet
+        if (it_asset == balances_.end())
+            return std::unexpected(WalletError::InsufficientReserved);
+
+        // Not enought reserve balance of asset to release in wallet
+        if (it_asset->second.reserved < amount)
+            return std::unexpected(WalletError::InsufficientReserved);
+
+        it_asset->second.reserved -= amount;
+
+        return {};
+    }
+
     Quantity Wallet::free_balance(const Asset &asset) const
     {
 

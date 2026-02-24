@@ -32,7 +32,7 @@ namespace vertex::domain
         std::expected<void, WalletError> withdraw(const Asset &asset, const Quantity amount);
         std::expected<void, WalletError> reserve(const Asset &asset, const Quantity amount);
         std::expected<void, WalletError> release(const Asset &asset, const Quantity amount);
-
+        std::expected<void, WalletError> consume_reserved(const Asset& asset, Quantity amount);
         Quantity free_balance(const Asset &asset) const;
         Quantity reserved_balance(const Asset &asset) const;
     };
