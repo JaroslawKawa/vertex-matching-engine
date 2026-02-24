@@ -6,12 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(vertex_engine STATIC
+    src/application/exchange.cpp
+    src/application/trade_history.cpp
     src/domain/user.cpp
     src/domain/wallet.cpp
     src/domain/order.cpp
     src/domain/limit_order.cpp
     src/domain/trade.cpp
-    src/application/exchange.cpp
     src/engine/order_book.cpp
     src/engine/matching_engine.cpp
 )

@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <expected>
 #include <string>
+#include "vertex/application/trade_history.hpp"
 #include "vertex/core/id_generator.hpp"
 #include "vertex/core/types.hpp"
 #include "vertex/domain/order.hpp"
@@ -14,6 +15,7 @@
 #include "vertex/engine/matching_engine.hpp"
 namespace vertex::application
 {
+    using TradeHistory = vertex::application::TradeHistory;
     using UserId = vertex::core::UserId;
     using UserIdGenerator = vertex::core::IdGenerator<UserId>;
     using User = vertex::domain::User;
@@ -87,6 +89,7 @@ namespace vertex::application
         TradeIdGenerator trade_id_generator_;
 
         MatchingEngine matching_engine_{};
+        TradeHistory trade_history_{};
 
     public:
         Exchange() = default;

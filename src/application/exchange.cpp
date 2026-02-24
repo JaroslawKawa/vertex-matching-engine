@@ -274,7 +274,8 @@ namespace vertex::application
                 order_result.filled_quantity += execution.quantity;
 
                 Trade trade{trade_id_generator_.next(), buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
-                // TO DO Trade history
+                
+                trade_history_.add(std::move(trade));
 
                 if (execution.buy_fully_filled)
                 {
