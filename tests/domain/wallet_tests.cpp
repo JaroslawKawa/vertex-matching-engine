@@ -109,3 +109,46 @@ TEST(WalletTest, MissingAssetBalancesReturnZero)
     EXPECT_EQ(wallet.free_balance(btc()), 0);
     EXPECT_EQ(wallet.reserved_balance(btc()), 0);
 }
+
+TEST(WalletTest, ReleaseOverReservedReturnsInsufficientReservedAndPreservesState)
+{
+    Wallet wallet;
+    ASSERT_TRUE(wallet.deposit(btc(), 10).has_value());
+    ASSERT_TRUE(wallet.reserve(btc(), 4).has_value());
+
+    const auto result = wallet.release(btc(), 5);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), WalletError::InsufficientReserved);
+    EXPECT_EQ(wallet.free_balance(btc()), 6);
+    EXPECT_EQ(wallet.reserved_balance(btc()), 4);
+}
+
+TEST(WalletTest, ConsumeReservedOverReservedReturnsInsufficientReservedAndPreservesState)
+{
+    Wallet wallet;
+    ASSERT_TRUE(wallet.deposit(usdt(), 20).has_value());
+    ASSERT_TRUE(wallet.reserve(usdt(), 7).has_value());
+
+    const auto result = wallet.consume_reserved(usdt(), 8);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), WalletError::InsufficientReserved);
+    EXPECT_EQ(wallet.free_balance(usdt()), 13);
+    EXPECT_EQ(wallet.reserved_balance(usdt()), 7);
+}
+
+TEST(WalletTest, DoubleConsumeReservedSecondCallFails)
+{
+    Wallet wallet;
+    ASSERT_TRUE(wallet.deposit(usdt(), 100).has_value());
+    ASSERT_TRUE(wallet.reserve(usdt(), 40).has_value());
+
+    ASSERT_TRUE(wallet.consume_reserved(usdt(), 40).has_value());
+    const auto second = wallet.consume_reserved(usdt(), 1);
+
+    ASSERT_FALSE(second.has_value());
+    EXPECT_EQ(second.error(), WalletError::InsufficientReserved);
+    EXPECT_EQ(wallet.free_balance(usdt()), 60);
+    EXPECT_EQ(wallet.reserved_balance(usdt()), 0);
+}

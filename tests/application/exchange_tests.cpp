@@ -151,3 +151,49 @@ TEST(ExchangeTest, PlaceLimitOrderWithoutMatchReturnsOpenOrder)
     EXPECT_EQ(place_result->filled_quantity, 0);
     EXPECT_EQ(place_result->remaining_quantity, 5);
 }
+
+TEST(ExchangeTest, MatchSettlementIsAppliedExactlyOnceWithPriceImprovement)
+{
+    Exchange exchange;
+    ASSERT_TRUE(exchange.register_market(btc_usdt()).has_value());
+
+    const auto buyer_result = exchange.create_user("buyer");
+    const auto seller_result = exchange.create_user("seller");
+    ASSERT_TRUE(buyer_result.has_value());
+    ASSERT_TRUE(seller_result.has_value());
+    const UserId buyer_id = *buyer_result;
+    const UserId seller_id = *seller_result;
+
+    ASSERT_TRUE(exchange.deposit(buyer_id, Asset{"usdt"}, 1000).has_value());
+    ASSERT_TRUE(exchange.deposit(seller_id, Asset{"btc"}, 10).has_value());
+
+    const auto resting_sell = exchange.place_limit_order(seller_id, btc_usdt(), Side::Sell, 100, 5);
+    ASSERT_TRUE(resting_sell.has_value());
+    EXPECT_EQ(resting_sell->filled_quantity, 0);
+    EXPECT_EQ(resting_sell->remaining_quantity, 5);
+
+    const auto taker_buy = exchange.place_limit_order(buyer_id, btc_usdt(), Side::Buy, 110, 5);
+    ASSERT_TRUE(taker_buy.has_value());
+    EXPECT_EQ(taker_buy->filled_quantity, 5);
+    EXPECT_EQ(taker_buy->remaining_quantity, 0);
+
+    const auto buyer_usdt_free = exchange.free_balance(buyer_id, Asset{"usdt"});
+    const auto buyer_usdt_reserved = exchange.reserved_balance(buyer_id, Asset{"usdt"});
+    const auto buyer_btc_free = exchange.free_balance(buyer_id, Asset{"btc"});
+    ASSERT_TRUE(buyer_usdt_free.has_value());
+    ASSERT_TRUE(buyer_usdt_reserved.has_value());
+    ASSERT_TRUE(buyer_btc_free.has_value());
+    EXPECT_EQ(*buyer_usdt_free, 500);
+    EXPECT_EQ(*buyer_usdt_reserved, 0);
+    EXPECT_EQ(*buyer_btc_free, 5);
+
+    const auto seller_btc_free = exchange.free_balance(seller_id, Asset{"btc"});
+    const auto seller_btc_reserved = exchange.reserved_balance(seller_id, Asset{"btc"});
+    const auto seller_usdt_free = exchange.free_balance(seller_id, Asset{"usdt"});
+    ASSERT_TRUE(seller_btc_free.has_value());
+    ASSERT_TRUE(seller_btc_reserved.has_value());
+    ASSERT_TRUE(seller_usdt_free.has_value());
+    EXPECT_EQ(*seller_btc_free, 5);
+    EXPECT_EQ(*seller_btc_reserved, 0);
+    EXPECT_EQ(*seller_usdt_free, 500);
+}
