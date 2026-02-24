@@ -13,7 +13,6 @@ namespace
     using vertex::core::Side;
     using vertex::domain::LimitOrder;
     using vertex::engine::MatchingEngine;
-    using vertex::engine::Order;
 
     Market btc_usdt()
     {
@@ -25,7 +24,7 @@ namespace
         return Market{Asset{"eth"}, Asset{"usdt"}};
     }
 
-    std::unique_ptr<Order> make_limit_order(
+    std::unique_ptr<LimitOrder> make_limit_order(
         const Market &market,
         OrderId order_id,
         vertex::core::UserId user_id,

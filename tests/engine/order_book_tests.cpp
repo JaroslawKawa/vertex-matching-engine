@@ -14,7 +14,6 @@ namespace
     using vertex::core::Side;
     using vertex::domain::LimitOrder;
     using vertex::domain::MarketOrder;
-    using vertex::engine::Order;
     using vertex::engine::OrderBook;
 
     Market btc_usdt()
@@ -22,7 +21,7 @@ namespace
         return Market{Asset{"btc"}, Asset{"usdt"}};
     }
 
-    std::unique_ptr<Order> make_limit_order(
+    std::unique_ptr<LimitOrder> make_limit_order(
         OrderId order_id,
         vertex::core::UserId user_id,
         Side side,
@@ -32,7 +31,7 @@ namespace
         return std::make_unique<LimitOrder>(order_id, user_id, btc_usdt(), side, quantity, price);
     }
 
-    std::unique_ptr<Order> make_market_order(
+    std::unique_ptr<MarketOrder> make_market_order(
         OrderId order_id,
         vertex::core::UserId user_id,
         Side side,
@@ -309,15 +308,3 @@ TEST(OrderBookTest, ExecuteMarketSellConsumesBidsAndUnfilledRemainderIsDropped)
     EXPECT_FALSE(book.best_ask().has_value());
     EXPECT_FALSE(book.cancel(OrderId{96}).has_value());
 }
-
-#if !defined(NDEBUG)
-TEST(OrderBookDeathTest, ExecuteMarketOrderWithLimitOrderDies)
-{
-    ASSERT_DEATH(
-        {
-            OrderBook book{btc_usdt()};
-            (void)book.execute_market_order(make_limit_order(OrderId{97}, vertex::core::UserId{117}, Side::Buy, 1, 100));
-        },
-        ".*");
-}
-#endif
