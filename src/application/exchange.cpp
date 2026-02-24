@@ -227,7 +227,7 @@ namespace vertex::application
         order_result.remaining_quantity = quantity;
         order_result.filled_quantity = 0;
 
-        std::vector<Execution> matching_result = matching_engine_.add_order(std::move(order));
+        std::vector<Execution> matching_result = matching_engine_.add_limit_order(std::move(order));
 
         if (!matching_result.empty())
         {

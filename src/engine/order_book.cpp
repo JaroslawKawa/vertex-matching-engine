@@ -9,7 +9,7 @@ namespace vertex::engine
 
     OrderBook::OrderBook(Market market) : market_(market) {}
 
-    std::vector<Execution> OrderBook::add_order(std::unique_ptr<Order> order)
+    std::vector<Execution> OrderBook::add_limit_order(std::unique_ptr<Order> order)
     {
         assert(order != nullptr);
         assert(order->market() == market_);

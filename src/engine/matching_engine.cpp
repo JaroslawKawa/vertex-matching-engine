@@ -14,7 +14,7 @@ namespace vertex::engine
         return (books_.find(market) != books_.end());
     }
 
-    std::vector<Execution> MatchingEngine::add_order(std::unique_ptr<Order> order)
+    std::vector<Execution> MatchingEngine::add_limit_order(std::unique_ptr<Order> order)
     {
         assert(order != nullptr);
 
@@ -22,7 +22,7 @@ namespace vertex::engine
 
         auto order_book_it = books_.find(market);
         assert(order_book_it != books_.end());
-        return order_book_it->second.add_order(std::move(order));
+        return order_book_it->second.add_limit_order(std::move(order));
     }
 
     std::optional<CancelResult> MatchingEngine::cancel(const Market &market, OrderId order_id)
