@@ -8,7 +8,7 @@ Domain layer models business entities and local invariants:
 
 - `User`
 - `Wallet`
-- `Order` / `LimitOrder`
+- `Order` / `LimitOrder` / `MarketOrder`
 - `Trade`
 
 No infrastructure logic is implemented here.
@@ -101,6 +101,22 @@ API:
 Invariant:
 
 - `price > 0` (`assert`)
+
+## MarketOrder
+
+Extends `Order` without storing a price.
+
+API:
+
+- `MarketOrder(..., Quantity initial_quantity)`
+- `Price price() const noexcept override`
+
+Current behavior / note:
+
+- `price()` exists only because `Order` currently requires it
+- calling `price()` on `MarketOrder` is an invariant violation (debug `assert`) and returns `0` after the assert path
+
+This is a transitional compatibility shape while engine/application APIs are being extended for market-order routing.
 
 ## Trade
 
