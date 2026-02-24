@@ -53,3 +53,31 @@ TEST(LimitOrderTest, ReduceUpdatesRemainingAndFilledFlags)
     EXPECT_FALSE(order.is_active());
     EXPECT_TRUE(order.is_filled());
 }
+
+#if !defined(NDEBUG)
+TEST(LimitOrderDeathTest, ReduceWithZeroDies)
+{
+    vertex::domain::LimitOrder order{
+        vertex::core::OrderId{10},
+        vertex::core::UserId{20},
+        make_market(),
+        vertex::core::Side::Buy,
+        3,
+        100};
+
+    ASSERT_DEATH({ order.reduce(0); }, ".*");
+}
+
+TEST(LimitOrderDeathTest, ReduceBelowZeroDies)
+{
+    vertex::domain::LimitOrder order{
+        vertex::core::OrderId{11},
+        vertex::core::UserId{21},
+        make_market(),
+        vertex::core::Side::Sell,
+        3,
+        100};
+
+    ASSERT_DEATH({ order.reduce(4); }, ".*");
+}
+#endif
