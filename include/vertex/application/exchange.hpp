@@ -60,7 +60,7 @@ namespace vertex::application
     };
     enum class CancelOrderError
     {
-        SymbolNotListed,
+        UserNotFound,
         OrderNotFound,
         NotOrderOwner
     };
@@ -75,7 +75,12 @@ namespace vertex::application
         Quantity filled_quantity;
         Quantity remaining_quantity;
     };
-
+    struct CancelOrderResult
+    {
+        OrderId id;
+        Side side;
+        Quantity remaining_quantity;
+    };
     class Exchange
     {
     private:
@@ -105,6 +110,7 @@ namespace vertex::application
         std::expected<Quantity, WalletOperationError> reserved_balance(const UserId user_id, const Asset &asset) const;
 
         std::expected<OrderPlacementResult, PlaceOrderError> place_limit_order(const UserId user_id, const Market &market, Side side, Price price, const Quantity quantity);
+        std::expected<CancelOrderResult, CancelOrderError> cancel_order(const UserId user_id, const OrderId order_id);
         std::expected<void, RegisterMarketError> register_market(const Market &market);
     };
 } // namespace vertex::application

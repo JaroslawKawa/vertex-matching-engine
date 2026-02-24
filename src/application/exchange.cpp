@@ -2,9 +2,10 @@
 #include <memory>
 #include <stdexcept>
 #include <vertex/application/exchange.hpp>
-
+#include <vertex/engine/order_book.hpp>
 namespace vertex::application
 {
+    using CancelResult = vertex::engine::CancelResult;
 
     std::expected<UserId, UserError> Exchange::create_user(std::string name)
     {
@@ -246,35 +247,27 @@ namespace vertex::application
 
                 const auto buyer_consume_result = buyer_wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
                 assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
-                if (!buyer_consume_result)
-                    std::terminate();
+
                 Quantity refund = execution.buy_order_limit_price * execution.quantity - execution.execution_price * execution.quantity;
                 if (0 < refund)
                 {
                     const auto buyer_release_result = buyer_wallet.release(market.quote(), refund);
                     assert(buyer_release_result && "Invariant violated: buyer refund release failed");
-                    if (!buyer_release_result)
-                        std::terminate();
                 }
                 const auto buyer_deposit_result = buyer_wallet.deposit(market.base(), execution.quantity);
                 assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-                if (!buyer_deposit_result)
-                    std::terminate();
 
                 const auto seller_consume_result = seller_wallet.consume_reserved(market.base(), execution.quantity);
                 assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
-                if (!seller_consume_result)
-                    std::terminate();
+
                 const auto seller_deposit_result = seller_wallet.deposit(market.quote(), execution.execution_price * execution.quantity);
                 assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
-                if (!seller_deposit_result)
-                    std::terminate();
 
                 order_result.remaining_quantity -= execution.quantity;
                 order_result.filled_quantity += execution.quantity;
 
                 Trade trade{trade_id_generator_.next(), buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
-                
+
                 trade_history_.add(std::move(trade));
 
                 if (execution.buy_fully_filled)
@@ -291,6 +284,59 @@ namespace vertex::application
         }
 
         return order_result;
+    }
+
+    std::expected<CancelOrderResult, CancelOrderError> Exchange::cancel_order(const UserId user_id, const OrderId order_id)
+    {
+
+        if (users_.find(user_id) == users_.end())
+            return std::unexpected(CancelOrderError::UserNotFound);
+
+        auto order_it = orders_.find(order_id);
+
+        if (order_it == orders_.end())
+            return std::unexpected(CancelOrderError::OrderNotFound);
+
+        if (order_it->second != user_id)
+            return std::unexpected(CancelOrderError::NotOrderOwner);
+
+        auto market_it = orders_market_.find(order_id);
+
+        if (market_it == orders_market_.end())
+        {
+            orders_.erase(order_id);
+            return std::unexpected(CancelOrderError::OrderNotFound);
+        }
+
+        auto cancel_result = matching_engine_.cancel(market_it->second, order_id);
+
+        if (!cancel_result)
+        {
+            orders_.erase(order_id);
+            orders_market_.erase(order_id);
+            return std::unexpected(CancelOrderError::OrderNotFound);
+        }
+        auto &wallet = wallets_.find(user_id)->second;
+        CancelOrderResult result;
+        if (cancel_result->side == Side::Buy)
+        {
+            const auto buyer_release_result = wallet.release(market_it->second.quote(), cancel_result->remaining_quantity * cancel_result->price);
+            assert(buyer_release_result && "Invariant violated: buyer release failed");
+            result.side = Side::Buy;
+        }
+        else
+        {
+            const auto seller_release_result = wallet.release(market_it->second.base(), cancel_result->remaining_quantity);
+            assert(seller_release_result && "Invariant violated: seller release failed");
+            result.side = Side::Sell;
+        }
+
+        result.id=order_id;
+        result.remaining_quantity = cancel_result->remaining_quantity;
+        orders_.erase(order_id);
+        orders_market_.erase(order_id);
+
+        return result;
     }
 
     std::expected<void, RegisterMarketError> Exchange::register_market(const Market &market)
