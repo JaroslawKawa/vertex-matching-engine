@@ -3,6 +3,16 @@
 
 namespace vertex::engine
 {
+    void MatchingEngine::register_market(const Market &market)
+    {
+        assert(!has_market(market));
+        books_.emplace(market, OrderBook{market});
+    }
+
+    bool MatchingEngine::has_market(const Market &market) const noexcept
+    {
+        return (books_.find(market) != books_.end());
+    }
 
     std::vector<Execution> MatchingEngine::add_order(std::unique_ptr<Order> order)
     {
@@ -23,14 +33,21 @@ namespace vertex::engine
         return order_book_it->second.cancel(order_id);
     }
 
-    void MatchingEngine::register_market(const Market &market)
+    std::optional<Price> MatchingEngine::best_ask(const Market &market) const
     {
-        assert(!has_market(market));
-        books_.emplace(market, OrderBook{market});
+
+        auto order_book_it = books_.find(market);
+
+        assert(order_book_it != books_.end());
+        return order_book_it->second.best_ask();
     }
 
-    bool MatchingEngine::has_market(const Market &market) const noexcept
+    std::optional<Price> MatchingEngine::best_bid(const Market &market) const
     {
-        return (books_.find(market) != books_.end());
+
+        auto order_book_it = books_.find(market);
+
+        assert(order_book_it != books_.end());
+        return order_book_it->second.best_bid();
     }
 }

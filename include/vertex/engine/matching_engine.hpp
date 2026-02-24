@@ -19,10 +19,13 @@ namespace vertex::engine
 
     public:
         MatchingEngine() noexcept = default;
-        std::vector<Execution> add_order(std::unique_ptr<Order> order);
-        std::optional<CancelResult> cancel(const Market &market, OrderId order_id);
         void register_market(const Market &market);
         bool has_market(const Market &market) const noexcept;
+
+        std::vector<Execution> add_order(std::unique_ptr<Order> order);
+        std::optional<CancelResult> cancel(const Market &market, OrderId order_id);
+        std::optional<Price> best_ask(const Market &market) const;
+        std::optional<Price> best_bid(const Market &market) const;
     };
 
 }
