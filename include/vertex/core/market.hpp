@@ -20,7 +20,7 @@ namespace vertex::core
     public:
         Market(Asset base, Asset quote) : base_(std::move(base)), quote_(std::move(quote))
         {
-            assert(base != quote);
+            assert(base_ != quote_);
         }
         const Asset &base() const noexcept
         {
