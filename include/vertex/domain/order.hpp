@@ -6,7 +6,7 @@ namespace vertex::domain
 {
     using OrderId = vertex::core::OrderId;
     using UserId = vertex::core::UserId;
-    using Symbol = vertex::core::Symbol;
+    using Market = vertex::core::Market;
     using Quantity = vertex::core::Quantity;
     using Side = vertex::core::Side;
     using Price = vertex::core::Price;
@@ -16,17 +16,17 @@ namespace vertex::domain
     protected:
         OrderId order_id_;
         UserId user_id_;
-        Symbol symbol_;
+        Market market_;
         Side side_;
         Quantity initial_quantity_;
         Quantity remaining_quantity_;
 
-        Order(OrderId order_id, UserId user_id, Symbol symbol, Side side, Quantity initial_quantity);
+        Order(OrderId order_id, UserId user_id, Market market, Side side, Quantity initial_quantity);
 
     public:
         OrderId id() const noexcept;
         UserId user_id() const noexcept;
-        const Symbol &symbol() const noexcept;
+        const Market &market() const noexcept;
         Side side() const noexcept;
 
         Quantity initial_quantity() const noexcept;

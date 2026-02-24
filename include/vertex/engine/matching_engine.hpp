@@ -9,20 +9,20 @@
 
 namespace vertex::engine
 {
-    using Symbol = vertex::core::Symbol;
+    using Market = vertex::core::Market;
     using OrderId = vertex::core::OrderId;
 
     class MatchingEngine
     {
     private:
-        std::unordered_map<Symbol, OrderBook> books_{};
+        std::unordered_map<Market, OrderBook> books_{};
 
     public:
         MatchingEngine() noexcept = default;
         std::vector<Execution> add_order(std::unique_ptr<Order> order);
-        std::optional<CancelResult> cancel(const Symbol &symbol, OrderId order_id);
-        void register_symbol(const Symbol &symbol);
-        bool has_symbol(const Symbol &symbol) const noexcept;
+        std::optional<CancelResult> cancel(const Market &market, OrderId order_id);
+        void register_market(const Market &market);
+        bool has_market(const Market &market) const noexcept;
     };
 
 }
