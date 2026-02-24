@@ -37,7 +37,7 @@ namespace vertex::engine
                 resting.reduce(executed);
                 order->reduce(executed);
 
-                result.push_back({order_id, resting.id(), executed, level_it->first, price,order->is_filled(),resting.is_filled()});
+                result.push_back({order_id, resting.id(), executed, level_it->first, price, order->is_filled(), resting.is_filled()});
 
                 if (resting.is_filled())
                 {
@@ -87,7 +87,7 @@ namespace vertex::engine
                 resting.reduce(executed);
                 order->reduce(executed);
 
-                result.push_back({resting.id(), order_id, executed, level_it->first,resting.price(),resting.is_filled(),order->is_filled()});
+                result.push_back({resting.id(), order_id, executed, level_it->first, resting.price(), resting.is_filled(), order->is_filled()});
 
                 if (resting.is_filled())
                 {
@@ -123,6 +123,91 @@ namespace vertex::engine
                 }
             }
         }
+        return result;
+    }
+
+    std::vector<Execution> OrderBook::execute_market_order(std::unique_ptr<Order> order)
+    {
+        assert(order != nullptr);
+        auto *market = dynamic_cast<MarketOrder *>(order.get());
+        assert(market && "execute_market_order requires MarketOrder");
+        assert(order->market() == market_);
+
+        OrderId order_id = order->id();
+        Side side = order->side();
+
+        std::vector<Execution> result;
+
+        if (side == Side::Buy)
+        {
+
+            while (order->remaining_quantity() > 0 && !asks_.empty())
+            {
+                auto level_it = asks_.begin();
+                auto &level = level_it->second;
+                auto resting_it = level.orders.begin();
+
+                Order &resting_order = **resting_it;
+
+                auto executed_quantity = std::min(order->remaining_quantity(), resting_order.remaining_quantity());
+
+                resting_order.reduce(executed_quantity);
+                order->reduce(executed_quantity);
+
+                result.push_back({order_id,
+                                  resting_order.id(),
+                                  executed_quantity,
+                                  level_it->first,
+                                  level_it->first,
+                                  order->is_filled(),
+                                  resting_order.is_filled()});
+
+                if (resting_order.is_filled())
+                {
+                    index_.erase(resting_order.id());
+                    level.orders.erase(resting_it);
+                }
+                if (level.orders.empty())
+                {
+                    asks_.erase(level_it);
+                }
+            }
+        }
+        else
+        {
+            while (order->remaining_quantity() > 0 && !bids_.empty())
+            {
+                auto level_it = bids_.begin();
+                auto &level = level_it->second;
+                auto resting_it = level.orders.begin();
+
+                Order &resting_order = **resting_it;
+
+                auto executed_quantity = std::min(order->remaining_quantity(), resting_order.remaining_quantity());
+
+                resting_order.reduce(executed_quantity);
+                order->reduce(executed_quantity);
+
+                result.push_back({resting_order.id(),
+                                  order->id(),
+                                  executed_quantity,
+                                  level_it->first,
+                                  level_it->first,
+                                  resting_order.is_filled(),
+                                  order->is_filled()});
+
+                if (resting_order.is_filled())
+                {
+                    index_.erase(resting_order.id());
+                    level.orders.erase(resting_it);
+                }
+                if (level.orders.empty())
+                {
+                    bids_.erase(level_it);
+                }
+            }
+        }
+
         return result;
     }
 
