@@ -34,7 +34,10 @@ namespace vertex::engine
         OrderId buy_order_id;
         OrderId sell_order_id;
         Quantity quantity;
-        Price price;
+        Price execution_price;
+        Price buy_order_limit_price;
+        bool buy_fully_filled;
+        bool sell_fully_filled;
     };
     struct CancelResult
     {

@@ -37,7 +37,7 @@ namespace vertex::engine
                 resting.reduce(executed);
                 order->reduce(executed);
 
-                result.push_back({order_id, resting.id(), executed, level_it->first});
+                result.push_back({order_id, resting.id(), executed, level_it->first, price,order->is_filled(),resting.is_filled()});
 
                 if (resting.is_filled())
                 {
@@ -87,7 +87,7 @@ namespace vertex::engine
                 resting.reduce(executed);
                 order->reduce(executed);
 
-                result.push_back({resting.id(), order_id, executed, level_it->first});
+                result.push_back({resting.id(), order_id, executed, level_it->first,resting.price(),resting.is_filled(),order->is_filled()});
 
                 if (resting.is_filled())
                 {
@@ -130,16 +130,16 @@ namespace vertex::engine
     {
         assert(order_id.is_valid());
 
-        auto order_lacation_it = index_.find(order_id);
+        auto order_location_it = index_.find(order_id);
 
-        if (order_lacation_it == index_.end())
+        if (order_location_it == index_.end())
         {
             return std::nullopt;
         }
 
         CancelResult result;
 
-        auto order_it = order_lacation_it->second.it;
+        auto order_it = order_location_it->second.it;
 
         result.id = order_id;
         result.side = order_it->get()->side();
@@ -173,7 +173,7 @@ namespace vertex::engine
             }
         }
 
-        index_.erase(order_lacation_it);
+        index_.erase(order_location_it);
         return result;
     }
 
