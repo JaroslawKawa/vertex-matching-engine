@@ -9,15 +9,15 @@ namespace vertex::application
         trades_map_[trade.market()].push_back(std::move(trade));
     }
 
-    std::optional<std::vector<Trade>> TradeHistory::market_history(const Market &market) const
+    std::vector<Trade> TradeHistory::market_history(const Market &market) const
     {
         auto result = trades_map_.find(market);
         if (result == trades_map_.end())
-            return std::nullopt;
+            return std::vector<Trade>{};
 
         if (result->second.empty())
             return std::vector<Trade>{};
-        
+
         return result->second;
     }
 }
