@@ -193,7 +193,7 @@ namespace vertex::application
         if (!user_id.is_valid())
             return std::unexpected(PlaceOrderError::UserNotFound);
 
-        if (listed_markets_.find(market) == listed_markets_.end())
+        if (matching_engine_.has_market(market))
             return std::unexpected(PlaceOrderError::MarketNotListed);
 
         if (quantity <= 0)
@@ -292,4 +292,13 @@ namespace vertex::application
         return order_result;
     }
 
+    std::expected<void, RegisterMarketError> Exchange::register_market(const Market &market)
+    {
+        if (!matching_engine_.has_market(market))
+            return std::unexpected(RegisterMarketError::AlreadyListed);
+
+        matching_engine_.register_market(market);
+
+        return {};
+    }
 } // namespace vertex::application

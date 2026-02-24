@@ -62,14 +62,17 @@ namespace vertex::application
         OrderNotFound,
         NotOrderOwner
     };
-
+    enum class RegisterMarketError
+    {
+        AlreadyListed,
+        InvalidMarket
+    };
     struct OrderPlacementResult
     {
         OrderId order_id;
         Quantity filled_quantity;
         Quantity remaining_quantity;
     };
-    
 
     class Exchange
     {
@@ -78,7 +81,6 @@ namespace vertex::application
         std::unordered_map<UserId, Wallet> wallets_;
         std::unordered_map<OrderId, UserId> orders_;
         std::unordered_map<OrderId, Market> orders_market_;
-        std::unordered_set<Market> listed_markets_;
 
         UserIdGenerator user_id_generator_;
         OrderIdGenerator order_id_generator_;
@@ -98,7 +100,8 @@ namespace vertex::application
         std::expected<void, WalletOperationError> release(const UserId user_id, const Asset &asset, const Quantity quantity);
         std::expected<Quantity, WalletOperationError> free_balance(const UserId user_id, const Asset &asset) const;
         std::expected<Quantity, WalletOperationError> reserved_balance(const UserId user_id, const Asset &asset) const;
-        
+
         std::expected<OrderPlacementResult, PlaceOrderError> place_limit_order(const UserId user_id, const Market &market, Side side, Price price, const Quantity quantity);
-    };  
+        std::expected<void, RegisterMarketError> register_market(const Market &market);
+    };
 } // namespace vertex::application
