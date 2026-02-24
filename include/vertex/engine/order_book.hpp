@@ -60,7 +60,6 @@ namespace vertex::engine
         std::optional<CancelResult> cancel(OrderId order_id);
         std::optional<Price> best_bid() const;
         std::optional<Price> best_ask() const;
-        bool empty() const noexcept;
     };
 
 }
