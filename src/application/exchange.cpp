@@ -193,7 +193,7 @@ namespace vertex::application
         if (!user_id.is_valid())
             return std::unexpected(PlaceOrderError::UserNotFound);
 
-        if (matching_engine_.has_market(market))
+        if (!matching_engine_.has_market(market))
             return std::unexpected(PlaceOrderError::MarketNotListed);
 
         if (quantity <= 0)
@@ -295,7 +295,7 @@ namespace vertex::application
 
     std::expected<void, RegisterMarketError> Exchange::register_market(const Market &market)
     {
-        if (!matching_engine_.has_market(market))
+        if (matching_engine_.has_market(market))
             return std::unexpected(RegisterMarketError::AlreadyListed);
 
         matching_engine_.register_market(market);
