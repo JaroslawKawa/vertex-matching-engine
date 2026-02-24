@@ -9,7 +9,7 @@ namespace vertex::domain
         const Price price_;
 
     public:
-        LimitOrder(OrderId order_id, UserId user_id, Symbol symbol, Side side, Quantity initial_quantity, Price price);
+        LimitOrder(OrderId order_id, UserId user_id, Market market, Side side, Quantity initial_quantity, Price price);
         Price price() const noexcept override;
     };
 

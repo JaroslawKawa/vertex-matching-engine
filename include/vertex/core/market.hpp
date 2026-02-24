@@ -3,10 +3,13 @@
 #include <compare>
 #include <functional>
 #include <utility>
-#include "vertex/core/types.hpp"
+#include "vertex/core/asset.hpp"
+
 namespace vertex::core
 
 {
+    struct AssetTag;
+    using Asset = StrongAsset<AssetTag>;
 
     class Market
     {
@@ -35,6 +38,7 @@ namespace vertex::core
 
 namespace std
 {
+    template <>
     struct hash<vertex::core::Market>
     {
         size_t operator()(const vertex::core::Market &id) const noexcept

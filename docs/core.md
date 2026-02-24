@@ -1,225 +1,90 @@
 # Core Layer
 
-This document describes low-level foundational components of the vertex-matching-engine.
+This document reflects the current implementation in `include/vertex/core/*`.
 
-Core components provide:
+## Scope
 
-- Strong type safety
-- ID generation
-- Fundamental system primitives
+Core layer provides foundational types and utilities:
 
-Core layer contains no business logic and no infrastructure logic.
+- Strong typed IDs (`StrongId<Tag>`)
+- Atomic ID generation (`IdGenerator<T>`)
+- Asset and market primitives (`StrongAsset<Tag>`, `Market`)
+- Common aliases (`types.hpp`)
 
----
+Core layer contains no matching logic, no wallet logic, and no application orchestration.
 
-# StrongId<Tag>
+## StrongId<Tag>
 
-## Responsibility
+Defined in `strong_id.hpp`.
 
-Provides strongly-typed identifiers to prevent accidental mixing of domain IDs.
+Current API:
 
-Examples:
+- `constexpr StrongId() noexcept = default`
+- `constexpr StrongId(std::uint64_t) noexcept`
+- `constexpr bool is_valid() const noexcept`
+- `constexpr std::uint64_t get_value() const noexcept`
+- defaulted three-way comparison (`operator<=>`)
 
-- `UserId`
-- `OrderId`
-- `TradeId`
+Properties:
 
-Prevents bugs such as assigning an OrderId to a UserId.
+- wraps `std::uint64_t`
+- default value `0` means invalid
+- hash specialization exists for unordered containers
 
-## Design
+## IdGenerator<T>
 
-template<typename Tag>
-class StrongId
+Defined in `id_generator.hpp`.
 
-Each Tag creates a distinct type at compile time:
+Current behavior:
 
-StrongId<UserTag> != StrongId<OrderTag>
+- template-constrained to `StrongId<Tag>` via trait + `static_assert`
+- internal counter: `std::atomic<std::uint64_t> counter{0}`
+- `next()` returns IDs starting from `1`
+- uses `fetch_add(..., memory_order_relaxed)`
 
-## Properties
+## StrongAsset<Tag> / Asset
 
-- Wraps `std::uint64_t`
-- Zero runtime overhead
-- Default value (0) represents invalid ID
-- Explicit constructor
-- Defaulted three-way comparison (`operator<=>`)
+Defined in `asset.hpp` and aliased in `types.hpp`.
 
-## Invariants
+Current API:
 
-- `value == 0` → invalid
-- `value > 0` → valid
+- `explicit StrongAsset(std::string name)`
+- `const std::string& value() const noexcept`
+- defaulted three-way comparison
+- hash specialization
 
-## Public API
+Behavior:
 
-### Constructor
+- input symbol is uppercased in constructor
+- non-empty name enforced by `assert`
 
-explicit StrongId(std::uint64_t value)
+## Market
 
-### isValid()
+Defined in `market.hpp`.
 
-bool isValid() const
+Current model:
 
-Returns true if ID is non-zero.
+- `Market(Asset base, Asset quote)`
+- `const Asset& base() const noexcept`
+- `const Asset& quote() const noexcept`
+- defaulted three-way comparison
+- hash specialization
 
-### getValue()
+Invariant:
 
-std::uint64_t getValue() const
+- `base != quote` (enforced by `assert`)
 
-Exposes underlying numeric value.
+## Common Types (`types.hpp`)
 
----
+Currently defined aliases:
 
-# IdGenerator<T>
-
-## Responsibility
-
-Generates monotonically increasing, strongly-typed identifiers.
-
-Designed to be:
-
-- Lock-free
-- Thread-safe
-- Low-overhead
-
-## Template Constraint
-
-T must be a specialization of `StrongId<Tag>`.
-
-Enforced via trait-based `static_assert`.
-
-## Internal State
-
-std::atomic<std::uint64_t> counter{0};
-
-## Behavior
-
-- First generated ID is 1
-- Each call increments counter atomically
-- Uses `memory_order_relaxed`
-
-## Public API
-
-### next()
-
-T next();
-
-Returns a new unique identifier.
-
-## Thread Safety
-
-- `fetch_add` ensures uniqueness
-- `memory_order_relaxed` is sufficient
-- No global synchronization required
-
-## Overflow
-
-- After `2^64 - 1`, counter wraps to 0
-- Practically irrelevant for MVP
-- Not currently guarded
-
----
-
-# Asset
-
-## Responsibility
-
-Represents a single tradable instrument (e.g., BTC, USDT).
-
-Asset is a strongly-typed wrapper around a normalized string identifier.
-
-## Design
-
-using Asset = StrongAsset<AssetTag>;
-
-## Properties
-
-- Explicit constructor from `std::string`
-- Internally normalized to uppercase
-- Immutable after construction
-- Value type (copyable, comparable)
-- Hashable
-- Defaulted three-way comparison
-
-## Invariants
-
-- Name must not be empty
-- Name is stored in uppercase form
-
-## Purpose
-
-Separates asset identity from trading pair identity.
-
-Used by:
-
-- Wallet (balances per asset)
-- Market (base and quote assets)
-
----
-
-# Market
-
-## Responsibility
-
-Represents a trading pair between two distinct assets.
-
-Examples:
-
-- BTC / USDT
-- ETH / USDT
-
-Market is a value-type that describes a matching context.
-
-## Design
-
-class Market
-{
-    Asset base;
-    Asset quote;
-}
-
-## Properties
-
-- Immutable after construction
-- Value type
-- Hashable
-- Defaulted three-way comparison
-- No business logic
-
-## Invariants
-
-- base != quote
-
-## Purpose
-
-- Used by MatchingEngine as key for order books
-- Defines the settlement direction:
-  - BUY → pay quote, receive base
-  - SELL → pay base, receive quote
-
----
-
-# Architectural Notes
-
-- Core layer contains no domain knowledge.
-- StrongId prevents category errors at compile time.
-- IdGenerator separates ID creation from entity construction.
-- Asset and Market separate instrument identity from trading context.
-- Exchange is responsible for owning ID generators.
-
----
-
-# Core Types
-
-Defined in `types.hpp`.
-
-Includes:
-
-- `UserId`
-- `OrderId`
-- `TradeId`
-- `Price`
-- `Quantity`
+- `UserId`, `OrderId`, `TradeId`
 - `Asset`
-- `Market`
-- `Side`
+- `Price` (`std::int64_t`)
+- `Quantity` (`std::int64_t`)
+- `Side` (`Buy`, `Sell`)
 
-Core types provide foundational building blocks for higher layers.
+Notes:
+
+- `Market` type comes from `market.hpp`
+- `AssetTag` exists in both `types.hpp` and `market.hpp` include graph; functionality works, but this is a detail worth keeping consistent during refactors.

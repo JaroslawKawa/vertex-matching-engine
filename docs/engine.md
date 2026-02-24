@@ -1,337 +1,85 @@
 # Engine Layer
 
-This document describes the matching engine components
-of the vertex-matching-engine.
+This document reflects the current implementation in `include/vertex/engine/*` and `src/engine/*`.
 
-The Engine layer is responsible for deterministic order matching.
-It contains no user logic, no wallet logic, and no application orchestration.
+## Scope
 
-The Engine layer operates purely on orders.
+Engine layer is responsible for deterministic order matching and routing by market.
 
----
+Components:
 
-# OrderBook
+- `OrderBook` (single market)
+- `MatchingEngine` (multiple markets)
 
-## Responsibility
+## OrderBook
 
-OrderBook represents a single-instrument matching engine.
+`OrderBook` is bound to exactly one `Market` (`market_`).
 
-Each OrderBook instance manages exactly one `Symbol`.
+Internal structures:
 
-It is responsible for:
+- `bids_`: `std::map<Price, PriceLevel, std::greater<>>`
+- `asks_`: `std::map<Price, PriceLevel, std::less<>>`
+- `index_`: `std::unordered_map<OrderId, OrderLocation>`
 
-- Maintaining price-time priority
-- Matching incoming orders
-- Producing execution results
-- Managing active order storage
-- Supporting order cancellation
-- Providing best bid / best ask queries
+`PriceLevel` stores FIFO list of orders:
 
-OrderBook does NOT:
+- `std::list<std::unique_ptr<Order>> orders`
 
-- Know about users
-- Manage wallets
-- Generate TradeId
-- Create Trade objects
-- Persist data
-- Handle threading
+### Execution model
 
----
+Current `Execution` struct:
 
-## Ownership Model
-
-OrderBook owns all active orders:
-
-- `std::unique_ptr<Order>` is stored internally
-- Ownership never leaves the OrderBook
-- Orders are destroyed on:
-  - Full execution
-  - Cancellation
-
-External layers never receive `Order` objects back.
-
----
-
-## Internal Data Structures
-
-### Price Levels
-
-Orders are grouped by price:
-
-- `bids_` → `std::map<Price, PriceLevel, std::greater<>>`
-- `asks_` → `std::map<Price, PriceLevel, std::less<>>`
-
-Each `PriceLevel` contains:
-
-
-std::list<std::unique_ptr<Order>>
-
-
-The list guarantees FIFO execution within the same price.
-
----
-
-### Order Index
-
-
-std::unordered_map<OrderId, OrderLocation>
-
-
-`OrderLocation` stores:
-
-- `Side`
-- `Price`
-- Iterator to the order in the list
-
-This enables O(1) cancellation.
-
-Invariant:
-
-If an `OrderId` exists in `index_`,
-then the corresponding order must exist in exactly one price level.
-
----
-
-## Matching Model
-
-Matching follows strict price-time priority.
-
-For incoming BUY:
-
-- Match against lowest ask
-- Continue while:
-  - Remaining quantity > 0
-  - Best ask price ≤ order price
-
-For incoming SELL:
-
-- Match against highest bid
-- Continue while:
-  - Remaining quantity > 0
-  - Best bid price ≥ order price
-
-Within a price level:
-
-- Orders are matched FIFO
-- Only the front order is considered per iteration
-
----
-
-## Execution
-
-Matching produces:
-
-
-struct Execution {
-OrderId buy_order_id;
-OrderId sell_order_id;
-Quantity quantity;
-Price price;
-};
-
-
-Execution is an engine-level result.
-
-It represents a mechanical match,
-not a business-level trade.
-
-Trade objects are constructed in the Application layer.
-
----
-
-## Partial and Full Fills
-
-For each match:
-
-- Executed quantity = min(incoming.remaining, resting.remaining)
-- Both orders are reduced
-- If resting becomes filled:
-  - Remove from list
-  - Remove from index_
-- If price level becomes empty:
-  - Remove price level from map
-
-If incoming order remains active after matching,
-it is inserted into its corresponding side map.
-
----
-
-## Cancel
-
-Cancel removes an active order from the book.
-
-Signature:
-
-
-std::optional<CancelResult> cancel(OrderId);
-
-
-CancelResult contains:
-
-- OrderId
-- Side
-- Price
-- Remaining quantity
+- `OrderId buy_order_id`
+- `OrderId sell_order_id`
+- `Quantity quantity`
+- `Price execution_price`
+- `Price buy_order_limit_price`
+- `bool buy_fully_filled`
+- `bool sell_fully_filled`
 
 Behavior:
 
-- If OrderId not found → return nullopt
-- If found:
-  - Remove from price level
-  - Remove empty level if necessary
-  - Remove from index_
-  - Return remaining quantity information
+- BUY order matches lowest asks while `ask_price <= buy_limit`
+- SELL order matches highest bids while `bid_price >= sell_limit`
+- per match: execute `min(incoming_remaining, resting_remaining)`
+- filled resting orders are removed from level + index
+- empty price levels are removed
+- remaining incoming quantity is inserted into correct side book
 
-Cancel does not transfer ownership of Order.
+### Cancel
 
-Order is destroyed inside OrderBook.
+`cancel(OrderId)` returns `std::optional<CancelResult>` with:
 
----
+- `id`
+- `side`
+- `price`
+- `remaining_quantity`
 
-## Queries
+Returns `nullopt` when order is not found.
 
-### best_bid()
+### Best prices
 
-Returns:
+- `best_bid()` -> highest bid or `nullopt`
+- `best_ask()` -> lowest ask or `nullopt`
 
-- Highest bid price
-- nullopt if no bids
+## MatchingEngine
 
-### best_ask()
+State:
 
-Returns:
+- `std::unordered_map<Market, OrderBook> books_`
 
-- Lowest ask price
-- nullopt if no asks
+API:
 
-These are state queries and do not represent errors.
-
----
-
-## Invariants
-
-- No empty price levels exist in bids_ or asks_
-- All active orders exist in index_
-- No OrderId exists twice
-- remaining_quantity > 0 for all active orders
-- All orders belong to the OrderBook's Symbol
-
-Invariant violations are fatal (assert).
-
----
-
-# MatchingEngine
-
-## Responsibility
-
-MatchingEngine coordinates multiple OrderBook instances.
-
-Each registered `Symbol` has exactly one corresponding OrderBook.
-
-MatchingEngine is responsible for:
-
-- Managing the lifecycle of OrderBook per Symbol
-- Routing incoming orders to the correct OrderBook
-- Routing cancel requests to the correct OrderBook
-- Enforcing engine-level configuration invariants
-
-MatchingEngine does NOT:
-
-- Perform matching itself
-- Generate identifiers
-- Know about users or wallets
-- Create Trade objects
-- Implement business validation
-
----
-
-## Internal State
-
-
-std::unordered_map<Symbol, OrderBook>
-
-
-Each Symbol must be explicitly registered before use.
-
-Implicit creation of OrderBook is not allowed.
-
----
-
-## Symbol Registration
-
-
-void register_symbol(const Symbol&);
-
+- `std::vector<Execution> add_order(std::unique_ptr<Order> order)`
+- `std::optional<CancelResult> cancel(const Market&, OrderId)`
+- `void register_market(const Market&)`
+- `bool has_market(const Market&) const noexcept`
 
 Behavior:
 
-- Creates a new OrderBook for the given Symbol
-- Asserts if the Symbol already exists
-- Must be called before accepting orders for that Symbol
+- `add_order` and `cancel` assert that market exists in `books_`
+- markets must be registered before use
 
-Lack of a registered Symbol is considered a configuration error
-and treated as a fatal invariant violation.
+## Known Gaps
 
----
-
-## Order Routing
-
-
-std::vector<Execution>
-add_order(std::unique_ptr<Order>);
-
-
-Behavior:
-
-- Extracts Symbol from Order
-- Asserts that the corresponding OrderBook exists
-- Delegates matching to OrderBook
-- Returns Execution results unchanged
-
----
-
-## Cancel Routing
-
-
-std::optional<CancelResult>
-cancel(const Symbol&, OrderId);
-
-
-Behavior:
-
-- Locates OrderBook by Symbol
-- Asserts that Symbol exists
-- Delegates cancellation to OrderBook
-- Returns CancelResult from OrderBook
-
----
-
-## Invariants
-
-- Every active Symbol has exactly one OrderBook
-- No implicit OrderBook creation occurs
-- Symbol absence during order routing is a configuration error
-- MatchingEngine contains no business-level validation
-
-MatchingEngine is a deterministic routing layer within Engine.
-
----
-
-# Architectural Notes
-
-Engine layer is:
-
-- Deterministic
-- Exception-free
-- Ownership-safe
-- Single-threaded (synchronization handled externally)
-
-Engine does not know:
-
-- UserId
-- Wallet
-- Exchange
-- TradeHistory
-- Infrastructure
-
-It is a pure matching component.
+- `OrderBook::empty() const noexcept` is declared in header but currently not implemented in `src/engine/order_book.cpp`.
