@@ -70,7 +70,7 @@ State:
 
 API:
 
-- `std::vector<Execution> add_order(std::unique_ptr<Order> order)`
+- `std::vector<Execution> add_limit_order(std::unique_ptr<Order> order)`
 - `std::optional<CancelResult> cancel(const Market&, OrderId)`
 - `std::optional<Price> best_bid(const Market&) const`
 - `std::optional<Price> best_ask(const Market&) const`
@@ -79,6 +79,6 @@ API:
 
 Behavior:
 
-- `add_order`, `cancel`, `best_bid`, and `best_ask` assert that market exists in `books_`
+- `add_limit_order`, `cancel`, `best_bid`, and `best_ask` assert that market exists in `books_`
 - markets must be registered before use
 - `best_bid`/`best_ask` delegate to the selected `OrderBook` and return `nullopt` when that book side is empty
