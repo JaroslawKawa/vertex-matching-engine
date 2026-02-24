@@ -8,6 +8,8 @@
 #include <vector>
 #include "vertex/core/types.hpp"
 #include "vertex/domain/order.hpp"
+#include "vertex/domain/limit_order.hpp"
+#include "vertex/domain/market_order.hpp"
 namespace vertex::engine
 {
     using Market = vertex::core::Market;
@@ -16,6 +18,8 @@ namespace vertex::engine
     using Price = vertex::core::Price;
     using OrderId = vertex::core::OrderId;
     using Order = vertex::domain::Order;
+    using LimitOrder = vertex::domain::LimitOrder;
+    using MarketOrder = vertex::domain::MarketOrder;
 
     struct OrderLocation
     {
@@ -56,7 +60,8 @@ namespace vertex::engine
 
     public:
         explicit OrderBook(Market market);
-        std::vector<Execution> add_order(std::unique_ptr<Order> order);
+        std::vector<Execution> add_limit_order(std::unique_ptr<LimitOrder> order);
+        std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order);
         std::optional<CancelResult> cancel(OrderId order_id);
         std::optional<Price> best_bid() const;
         std::optional<Price> best_ask() const;

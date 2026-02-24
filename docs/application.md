@@ -22,6 +22,7 @@ Current enums:
 - `UserError`: `UserNotFound`, `UserAlreadyExists`, `EmptyName`
 - `WalletOperationError`: `UserNotFound`, `InsufficientFunds`, `InsufficientReserved`, `InvalidAmount`
 - `PlaceOrderError`: `MarketNotListed`, `UserNotFound`, `WalletNotFound`, `InsufficientFunds`, `InvalidQuantity`, `InvalidAmount`
+- `CancelOrderError`: `UserNotFound`, `OrderNotFound`, `NotOrderOwner`
 - `RegisterMarketError`: `AlreadyListed`, `InvalidMarket`
 
 Note: some enum values are currently unused (`WalletNotFound`, `InvalidMarket`).
@@ -43,6 +44,7 @@ Market and trading:
 
 - `register_market(market)`
 - `place_limit_order(user_id, market, side, price, quantity)`
+- `cancel_order(user_id, order_id)`
 
 ## Current order placement flow
 
@@ -52,7 +54,7 @@ Market and trading:
 2. reserve funds
 3. create `LimitOrder`
 4. store ownership/index mappings (`orders_`, `orders_market_`)
-5. route order to `matching_engine_.add_order`
+5. route order to `matching_engine_.add_limit_order`
 6. for each `Execution`, settle wallets:
 - buyer consumes quote reserved
 - buyer receives quote refund when `buy_limit > execution_price`
@@ -60,11 +62,24 @@ Market and trading:
 - seller consumes base reserved
 - seller receives quote asset
 7. update `OrderPlacementResult` filled/remaining
-8. create `Trade` object (currently not persisted)
+8. create `Trade` object and persist it in `TradeHistory`
 9. remove fully filled orders from ownership maps
+
+## Current cancel flow
+
+`cancel_order` currently performs:
+
+1. validate user existence
+2. validate order existence and ownership (`orders_`)
+3. resolve market from `orders_market_`
+4. cancel order in matching engine
+5. release reserved funds:
+- BUY: release quote `remaining_quantity * price`
+- SELL: release base `remaining_quantity`
+6. remove order ownership/index mappings
+7. return `CancelOrderResult` (`id`, `side`, `remaining_quantity`)
 
 ## Known Gaps / Current Risks
 
-- In current code, market-not-listed check in `place_limit_order` is inverted (`if (matching_engine_.has_market(market)) return MarketNotListed;`). This should be negated to match intended behavior.
 - `register_market` does not currently validate `InvalidMarket`; only duplicate check (`AlreadyListed`) is implemented.
-- Trade history storage is not implemented yet (trade object is created and dropped).
+- `WalletNotFound` in `PlaceOrderError` is currently unused (wallet lookup maps to `UserNotFound` in current implementation).

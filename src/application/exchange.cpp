@@ -218,7 +218,7 @@ namespace vertex::application
         if (!reserve_result)
             return std::unexpected(PlaceOrderError::InsufficientFunds);
 
-        std::unique_ptr<Order> order = std::make_unique<LimitOrder>(order_id_generator_.next(), user_id, market, side, quantity, price);
+        std::unique_ptr<LimitOrder> order = std::make_unique<LimitOrder>(order_id_generator_.next(), user_id, market, side, quantity, price);
 
         orders_[order->id()] = user_id;
         orders_market_.insert_or_assign(order->id(), market);
@@ -227,7 +227,7 @@ namespace vertex::application
         order_result.remaining_quantity = quantity;
         order_result.filled_quantity = 0;
 
-        std::vector<Execution> matching_result = matching_engine_.add_order(std::move(order));
+        std::vector<Execution> matching_result = matching_engine_.add_limit_order(std::move(order));
 
         if (!matching_result.empty())
         {
