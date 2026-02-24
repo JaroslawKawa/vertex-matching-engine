@@ -2,6 +2,8 @@ add_executable(vertex_tests
     core/strong_id_tests.cpp
     core/id_generator_tests.cpp
     core/asset_market_tests.cpp
+    application/trade_history_tests.cpp
+    application/exchange_tests.cpp
     domain/user_tests.cpp
     domain/wallet_tests.cpp
     domain/order_tests.cpp
