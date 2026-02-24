@@ -72,14 +72,13 @@ API:
 
 - `std::vector<Execution> add_order(std::unique_ptr<Order> order)`
 - `std::optional<CancelResult> cancel(const Market&, OrderId)`
+- `std::optional<Price> best_bid(const Market&) const`
+- `std::optional<Price> best_ask(const Market&) const`
 - `void register_market(const Market&)`
 - `bool has_market(const Market&) const noexcept`
 
 Behavior:
 
-- `add_order` and `cancel` assert that market exists in `books_`
+- `add_order`, `cancel`, `best_bid`, and `best_ask` assert that market exists in `books_`
 - markets must be registered before use
-
-## Known Gaps
-
-- `OrderBook::empty() const noexcept` is declared in header but currently not implemented in `src/engine/order_book.cpp`.
+- `best_bid`/`best_ask` delegate to the selected `OrderBook` and return `nullopt` when that book side is empty
