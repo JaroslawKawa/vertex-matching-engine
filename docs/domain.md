@@ -118,6 +118,10 @@ Current behavior / note:
 
 This is a transitional compatibility shape while engine/application APIs are being extended for market-order routing.
 
+Current usage:
+
+- `OrderBook::execute_market_order(...)` accepts `std::unique_ptr<MarketOrder>`
+
 ## Trade
 
 Current trade model includes both users and orders:
