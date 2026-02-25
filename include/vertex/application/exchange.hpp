@@ -39,6 +39,8 @@ namespace vertex::application
     using Trade = vertex::domain::Trade;
     using LimitOrderRequest = vertex::engine::LimitOrderRequest;
     using MarketBuyByQuoteRequest = vertex::engine::MarketBuyByQuoteRequest;
+    using MarketSellByBaseRequest = vertex::engine::MarketSellByBaseRequest;
+    
     enum class WalletOperationError
     {
         UserNotFound,
@@ -99,6 +101,10 @@ namespace vertex::application
 
         MatchingEngine matching_engine_{};
         TradeHistory trade_history_{};
+
+        OrderPlacementResult execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
+        OrderPlacementResult execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
+
 
     public:
         Exchange() = default;
