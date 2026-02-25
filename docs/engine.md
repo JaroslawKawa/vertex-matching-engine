@@ -76,6 +76,7 @@ State:
 API:
 
 - `std::vector<Execution> add_limit_order(std::unique_ptr<LimitOrder> order)`
+- `std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order)`
 - `std::optional<CancelResult> cancel(const Market&, OrderId)`
 - `std::optional<Price> best_bid(const Market&) const`
 - `std::optional<Price> best_ask(const Market&) const`
@@ -84,10 +85,10 @@ API:
 
 Behavior:
 
-- `add_limit_order`, `cancel`, `best_bid`, and `best_ask` assert that market exists in `books_`
+- `add_limit_order`, `execute_market_order`, `cancel`, `best_bid`, and `best_ask` assert that market exists in `books_`
 - markets must be registered before use
 - `best_bid`/`best_ask` delegate to the selected `OrderBook` and return `nullopt` when that book side is empty
-- `MatchingEngine` currently exposes only limit-order routing (`add_limit_order`); market-order execution is implemented in `OrderBook` but not yet exposed here
+- `add_limit_order` and `execute_market_order` delegate to the selected `OrderBook`
 
 ### `OrderBook::execute_market_order`
 
