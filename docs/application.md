@@ -14,6 +14,7 @@ Owned state:
 - `orders_market_`: `unordered_map<OrderId, Market>`
 - generators: `UserIdGenerator`, `OrderIdGenerator`, `TradeIdGenerator`
 - `matching_engine_`
+- `trade_history_`
 
 ## Errors
 
@@ -44,6 +45,7 @@ Market and trading:
 
 - `register_market(market)`
 - `place_limit_order(user_id, market, side, price, quantity)`
+- `execute_market_order(user_id, market, side, order_quantity)`
 - `cancel_order(user_id, order_id)`
 
 ## Current order placement flow
@@ -64,6 +66,34 @@ Market and trading:
 7. update `OrderPlacementResult` filled/remaining
 8. create `Trade` object and persist it in `TradeHistory`
 9. remove fully filled orders from ownership maps
+
+## Current market order flow
+
+`execute_market_order` currently performs:
+
+1. input checks (`user_id`, market presence, `order_quantity`, user wallet presence)
+2. reserve taker funds:
+- BUY: reserve `market.quote()` using `order_quantity` as quote budget
+- SELL: reserve `market.base()` using `order_quantity` as base quantity to sell
+3. create `MarketOrder` and route it to `matching_engine_.execute_market_order`
+4. for each `Execution`, settle wallets:
+- buyer consumes quote reserved (`execution.quantity * execution.execution_price`)
+- buyer receives base asset (`execution.quantity`)
+- seller consumes base reserved (`execution.quantity`)
+- seller receives quote asset (`execution.quantity * execution.execution_price`)
+5. update `OrderPlacementResult`
+6. persist `Trade` entries in `TradeHistory`
+7. cleanup fully filled resting limit orders from ownership maps
+8. release taker remainder reservation (if any)
+
+Notes:
+
+- Market orders are not inserted into `orders_` / `orders_market_` (they are taker-only execution requests).
+- Because they are not persisted as open orders, `cancel_order` for a returned market-order id will return `OrderNotFound`.
+- `OrderPlacementResult` units for `execute_market_order` are currently side-dependent:
+- BUY: `filled_quantity` and `remaining_quantity` are quote amounts (spent / budget left)
+- SELL: `filled_quantity` and `remaining_quantity` are base amounts (sold / unsold)
+- This differs from `place_limit_order`, where filled/remaining are base quantities.
 
 ## Current cancel flow
 

@@ -366,3 +366,168 @@ TEST(ExchangeTest, CancelAfterPartialFillReleasesOnlyRemainingReservation)
     EXPECT_EQ(*seller_btc_free_after_cancel, 8);
     EXPECT_EQ(*seller_btc_reserved_after_cancel, 0);
 }
+
+TEST(ExchangeTest, ExecuteMarketOrderWithoutLiquidityReleasesReservedFunds)
+{
+    Exchange exchange;
+    ASSERT_TRUE(exchange.register_market(btc_usdt()).has_value());
+
+    const auto buyer_result = exchange.create_user("buyer");
+    ASSERT_TRUE(buyer_result.has_value());
+    const UserId buyer_id = *buyer_result;
+
+    ASSERT_TRUE(exchange.deposit(buyer_id, Asset{"usdt"}, 1000).has_value());
+
+    const auto result = exchange.execute_market_order(buyer_id, btc_usdt(), Side::Buy, 250);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->order_id.is_valid());
+    EXPECT_EQ(result->filled_quantity, 0);
+    EXPECT_EQ(result->remaining_quantity, 250);
+
+    const auto buyer_usdt_free = exchange.free_balance(buyer_id, Asset{"usdt"});
+    const auto buyer_usdt_reserved = exchange.reserved_balance(buyer_id, Asset{"usdt"});
+    const auto buyer_btc_free = exchange.free_balance(buyer_id, Asset{"btc"});
+    ASSERT_TRUE(buyer_usdt_free.has_value());
+    ASSERT_TRUE(buyer_usdt_reserved.has_value());
+    ASSERT_TRUE(buyer_btc_free.has_value());
+    EXPECT_EQ(*buyer_usdt_free, 1000);
+    EXPECT_EQ(*buyer_usdt_reserved, 0);
+    EXPECT_EQ(*buyer_btc_free, 0);
+
+    const auto cancel_market_order = exchange.cancel_order(buyer_id, result->order_id);
+    ASSERT_FALSE(cancel_market_order.has_value());
+    EXPECT_EQ(cancel_market_order.error(), CancelOrderError::OrderNotFound);
+}
+
+TEST(ExchangeTest, ExecuteMarketBuyUsesQuoteBudgetAndLeavesTooSmallRemainderReleased)
+{
+    Exchange exchange;
+    ASSERT_TRUE(exchange.register_market(btc_usdt()).has_value());
+
+    const auto buyer_result = exchange.create_user("buyer");
+    const auto seller1_result = exchange.create_user("seller1");
+    const auto seller2_result = exchange.create_user("seller2");
+    ASSERT_TRUE(buyer_result.has_value());
+    ASSERT_TRUE(seller1_result.has_value());
+    ASSERT_TRUE(seller2_result.has_value());
+    const UserId buyer_id = *buyer_result;
+    const UserId seller1_id = *seller1_result;
+    const UserId seller2_id = *seller2_result;
+
+    ASSERT_TRUE(exchange.deposit(buyer_id, Asset{"usdt"}, 1000).has_value());
+    ASSERT_TRUE(exchange.deposit(seller1_id, Asset{"btc"}, 2).has_value());
+    ASSERT_TRUE(exchange.deposit(seller2_id, Asset{"btc"}, 3).has_value());
+
+    const auto resting_sell_1 = exchange.place_limit_order(seller1_id, btc_usdt(), Side::Sell, 100, 2);
+    const auto resting_sell_2 = exchange.place_limit_order(seller2_id, btc_usdt(), Side::Sell, 101, 3);
+    ASSERT_TRUE(resting_sell_1.has_value());
+    ASSERT_TRUE(resting_sell_2.has_value());
+
+    // Budget = 401 USDT -> buys 2 BTC @100 and 1 BTC @101, leaves 100 USDT budget remainder.
+    const auto taker_buy = exchange.execute_market_order(buyer_id, btc_usdt(), Side::Buy, 401);
+    ASSERT_TRUE(taker_buy.has_value());
+    EXPECT_EQ(taker_buy->filled_quantity, 301);      // quote spent
+    EXPECT_EQ(taker_buy->remaining_quantity, 100);   // quote budget left
+
+    const auto buyer_usdt_free = exchange.free_balance(buyer_id, Asset{"usdt"});
+    const auto buyer_usdt_reserved = exchange.reserved_balance(buyer_id, Asset{"usdt"});
+    const auto buyer_btc_free = exchange.free_balance(buyer_id, Asset{"btc"});
+    ASSERT_TRUE(buyer_usdt_free.has_value());
+    ASSERT_TRUE(buyer_usdt_reserved.has_value());
+    ASSERT_TRUE(buyer_btc_free.has_value());
+    EXPECT_EQ(*buyer_usdt_free, 699);
+    EXPECT_EQ(*buyer_usdt_reserved, 0);
+    EXPECT_EQ(*buyer_btc_free, 3);
+
+    const auto seller1_btc_free = exchange.free_balance(seller1_id, Asset{"btc"});
+    const auto seller1_btc_reserved = exchange.reserved_balance(seller1_id, Asset{"btc"});
+    const auto seller1_usdt_free = exchange.free_balance(seller1_id, Asset{"usdt"});
+    ASSERT_TRUE(seller1_btc_free.has_value());
+    ASSERT_TRUE(seller1_btc_reserved.has_value());
+    ASSERT_TRUE(seller1_usdt_free.has_value());
+    EXPECT_EQ(*seller1_btc_free, 0);
+    EXPECT_EQ(*seller1_btc_reserved, 0);
+    EXPECT_EQ(*seller1_usdt_free, 200);
+
+    const auto seller2_btc_free = exchange.free_balance(seller2_id, Asset{"btc"});
+    const auto seller2_btc_reserved = exchange.reserved_balance(seller2_id, Asset{"btc"});
+    const auto seller2_usdt_free = exchange.free_balance(seller2_id, Asset{"usdt"});
+    ASSERT_TRUE(seller2_btc_free.has_value());
+    ASSERT_TRUE(seller2_btc_reserved.has_value());
+    ASSERT_TRUE(seller2_usdt_free.has_value());
+    EXPECT_EQ(*seller2_btc_free, 0);
+    EXPECT_EQ(*seller2_btc_reserved, 2);
+    EXPECT_EQ(*seller2_usdt_free, 101);
+
+    const auto cancel_remaining = exchange.cancel_order(seller2_id, resting_sell_2->order_id);
+    ASSERT_TRUE(cancel_remaining.has_value());
+    EXPECT_EQ(cancel_remaining->side, Side::Sell);
+    EXPECT_EQ(cancel_remaining->remaining_quantity, 2);
+}
+
+TEST(ExchangeTest, ExecuteMarketSellSettlesQuoteAndReleasesUnfilledBaseRemainder)
+{
+    Exchange exchange;
+    ASSERT_TRUE(exchange.register_market(btc_usdt()).has_value());
+
+    const auto seller_result = exchange.create_user("seller");
+    const auto buyer1_result = exchange.create_user("buyer1");
+    const auto buyer2_result = exchange.create_user("buyer2");
+    ASSERT_TRUE(seller_result.has_value());
+    ASSERT_TRUE(buyer1_result.has_value());
+    ASSERT_TRUE(buyer2_result.has_value());
+    const UserId seller_id = *seller_result;
+    const UserId buyer1_id = *buyer1_result;
+    const UserId buyer2_id = *buyer2_result;
+
+    ASSERT_TRUE(exchange.deposit(seller_id, Asset{"btc"}, 5).has_value());
+    ASSERT_TRUE(exchange.deposit(buyer1_id, Asset{"usdt"}, 1000).has_value());
+    ASSERT_TRUE(exchange.deposit(buyer2_id, Asset{"usdt"}, 1000).has_value());
+
+    const auto resting_buy_1 = exchange.place_limit_order(buyer1_id, btc_usdt(), Side::Buy, 105, 2);
+    const auto resting_buy_2 = exchange.place_limit_order(buyer2_id, btc_usdt(), Side::Buy, 104, 1);
+    ASSERT_TRUE(resting_buy_1.has_value());
+    ASSERT_TRUE(resting_buy_2.has_value());
+
+    const auto taker_sell = exchange.execute_market_order(seller_id, btc_usdt(), Side::Sell, 5);
+    ASSERT_TRUE(taker_sell.has_value());
+    EXPECT_EQ(taker_sell->filled_quantity, 3);     // base sold
+    EXPECT_EQ(taker_sell->remaining_quantity, 2);  // base unsold, then released
+
+    const auto seller_btc_free = exchange.free_balance(seller_id, Asset{"btc"});
+    const auto seller_btc_reserved = exchange.reserved_balance(seller_id, Asset{"btc"});
+    const auto seller_usdt_free = exchange.free_balance(seller_id, Asset{"usdt"});
+    ASSERT_TRUE(seller_btc_free.has_value());
+    ASSERT_TRUE(seller_btc_reserved.has_value());
+    ASSERT_TRUE(seller_usdt_free.has_value());
+    EXPECT_EQ(*seller_btc_free, 2);
+    EXPECT_EQ(*seller_btc_reserved, 0);
+    EXPECT_EQ(*seller_usdt_free, 314);
+
+    const auto buyer1_usdt_free = exchange.free_balance(buyer1_id, Asset{"usdt"});
+    const auto buyer1_usdt_reserved = exchange.reserved_balance(buyer1_id, Asset{"usdt"});
+    const auto buyer1_btc_free = exchange.free_balance(buyer1_id, Asset{"btc"});
+    ASSERT_TRUE(buyer1_usdt_free.has_value());
+    ASSERT_TRUE(buyer1_usdt_reserved.has_value());
+    ASSERT_TRUE(buyer1_btc_free.has_value());
+    EXPECT_EQ(*buyer1_usdt_free, 790);
+    EXPECT_EQ(*buyer1_usdt_reserved, 0);
+    EXPECT_EQ(*buyer1_btc_free, 2);
+
+    const auto buyer2_usdt_free = exchange.free_balance(buyer2_id, Asset{"usdt"});
+    const auto buyer2_usdt_reserved = exchange.reserved_balance(buyer2_id, Asset{"usdt"});
+    const auto buyer2_btc_free = exchange.free_balance(buyer2_id, Asset{"btc"});
+    ASSERT_TRUE(buyer2_usdt_free.has_value());
+    ASSERT_TRUE(buyer2_usdt_reserved.has_value());
+    ASSERT_TRUE(buyer2_btc_free.has_value());
+    EXPECT_EQ(*buyer2_usdt_free, 896);
+    EXPECT_EQ(*buyer2_usdt_reserved, 0);
+    EXPECT_EQ(*buyer2_btc_free, 1);
+
+    const auto cancel_filled_buy_1 = exchange.cancel_order(buyer1_id, resting_buy_1->order_id);
+    ASSERT_FALSE(cancel_filled_buy_1.has_value());
+    EXPECT_EQ(cancel_filled_buy_1.error(), CancelOrderError::OrderNotFound);
+    const auto cancel_filled_buy_2 = exchange.cancel_order(buyer2_id, resting_buy_2->order_id);
+    ASSERT_FALSE(cancel_filled_buy_2.has_value());
+    EXPECT_EQ(cancel_filled_buy_2.error(), CancelOrderError::OrderNotFound);
+}
