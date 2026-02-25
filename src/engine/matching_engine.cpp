@@ -1,8 +1,18 @@
 #include <cassert>
+#include <variant>
+
 #include "vertex/engine/matching_engine.hpp"
 
 namespace vertex::engine
 {
+    template <class... Ts>
+    struct Overloaded : Ts...
+    {
+        using Ts::operator()...;
+    };
+    template <class... Ts>
+    Overloaded(Ts...) -> Overloaded<Ts...>;
+
     void MatchingEngine::register_market(const Market &market)
     {
         assert(!has_market(market));
@@ -60,4 +70,30 @@ namespace vertex::engine
         assert(order_book_it != books_.end());
         return order_book_it->second.best_bid();
     }
+
+    std::vector<Execution> MatchingEngine::submit(const OrderRequest &order_request)
+    {
+        return std::visit(
+            Overloaded{
+                [this](const LimitOrderRequest &req) -> std::vector<Execution>
+                {
+                    auto order = std::make_unique<LimitOrder>(
+                        req.request_id, req.user_id, req.market, req.side, req.base_quantity, req.limit_price);
+                    return add_limit_order(std::move(order));
+                },
+                [this](const MarketBuyByQuoteRequest &req) -> std::vector<Execution>
+                {
+                    auto order = std::make_unique<MarketOrder>(
+                        req.request_id, req.user_id, req.market, Side::Buy, req.quote_budget);
+                    return execute_market_order(std::move(order));
+                },
+                [this](const MarketSellByBaseRequest &req) -> std::vector<Execution>
+                {
+                    auto order = std::make_unique<MarketOrder>(
+                        req.request_id, req.user_id, req.market, Side::Sell, req.base_quantity);
+                    return execute_market_order(std::move(order));
+                }},
+            order_request);
+    }
+
 }

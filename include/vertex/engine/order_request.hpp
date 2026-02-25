@@ -10,11 +10,7 @@ namespace vertex::engine
     using Price = vertex::core::Price;
     using Side = vertex::core::Side;
     using Quantity = vertex::core::Quantity;
-    using OrderRequest = std::variant<
-        LimitOrderRequest,
-        MarketBuyByQuoteRequest,
-        MarketSellByBaseRequest>;
-
+    
     struct LimitOrderRequest
     {
         OrderId request_id;
@@ -39,4 +35,10 @@ namespace vertex::engine
         Market market;
         Quantity base_quantity;
     };
+
+    using OrderRequest = std::variant<
+        LimitOrderRequest,
+        MarketBuyByQuoteRequest,
+        MarketSellByBaseRequest>;
+
 }
