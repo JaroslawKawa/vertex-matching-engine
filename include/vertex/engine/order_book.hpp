@@ -10,6 +10,8 @@
 #include "vertex/domain/order.hpp"
 #include "vertex/domain/limit_order.hpp"
 #include "vertex/domain/market_order.hpp"
+#include "vertex/engine/resting_order.hpp"
+
 namespace vertex::engine
 {
     using Market = vertex::core::Market;
@@ -20,17 +22,18 @@ namespace vertex::engine
     using Order = vertex::domain::Order;
     using LimitOrder = vertex::domain::LimitOrder;
     using MarketOrder = vertex::domain::MarketOrder;
+    using RestingOrder = vertex::engine::RestingOrder;
 
     struct OrderLocation
     {
         Side side;
         Price price;
-        std::list<std::unique_ptr<Order>>::iterator it;
+        std::list<RestingOrder>::iterator it;
     };
 
     struct PriceLevel
     {
-        std::list<std::unique_ptr<Order>> orders;
+        std::list<RestingOrder> orders;
     };
 
     struct Execution

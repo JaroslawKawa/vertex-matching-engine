@@ -27,6 +27,10 @@ namespace vertex::engine
         {
             return remaining_base_quantity == 0;
         }
+        bool is_active() const noexcept
+        {
+            return remaining_base_quantity > 0;
+        }
     };
 
 }

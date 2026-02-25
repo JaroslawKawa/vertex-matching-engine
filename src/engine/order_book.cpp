@@ -9,39 +9,46 @@ namespace vertex::engine
 
     OrderBook::OrderBook(Market market) : market_(market) {}
 
-    std::vector<Execution> OrderBook::add_limit_order(std::unique_ptr<LimitOrder> order)
+    std::vector<Execution> OrderBook::add_limit_order(std::unique_ptr<LimitOrder> order_u)
     {
-        assert(order != nullptr);
-        assert(order->market() == market_);
+        assert(order_u != nullptr);
+        assert(order_u->market() == market_);
 
-        OrderId order_id = order.get()->id();
-        Price price = order.get()->price();
-        Side side = order.get()->side();
+        OrderId order_id = order_u.get()->id();
+        Price price = order_u.get()->price();
+        Side side = order_u.get()->side();
+
+        RestingOrder order{
+            .order_id = order_id,
+            .limit_price = price,
+            .initial_base_quantity = order_u->initial_quantity(),
+            .remaining_base_quantity = order_u->remaining_quantity(),
+        };
 
         std::vector<Execution> result;
 
         if (side == Side::Buy)
         {
 
-            while (order->remaining_quantity() > 0 && !asks_.empty() && asks_.begin()->first <= price)
+            while (order.remaining_base_quantity > 0 && !asks_.empty() && asks_.begin()->first <= price)
             {
                 auto level_it = asks_.begin(); // It for Prices/PriceLvl in asks_map
 
                 auto &level = level_it->second;         // PriceLvl
                 auto resting_it = level.orders.begin(); // it for begin of orders in PriceLvl list
 
-                Order &resting = **resting_it; // Order
+                RestingOrder &resting = *resting_it; // Order
 
-                Quantity executed = std::min(order->remaining_quantity(), resting.remaining_quantity());
+                Quantity executed = std::min(order.remaining_base_quantity, resting.remaining_base_quantity);
 
                 resting.reduce(executed);
-                order->reduce(executed);
+                order.reduce(executed);
 
-                result.push_back({order_id, resting.id(), executed, level_it->first, price, order->is_filled(), resting.is_filled()});
+                result.push_back({order_id, resting.order_id, executed, level_it->first, price, order.is_filled(), resting.is_filled()});
 
                 if (resting.is_filled())
                 {
-                    index_.erase(resting.id());
+                    index_.erase(resting.order_id);
                     level.orders.erase(resting_it);
                 }
 
@@ -50,29 +57,29 @@ namespace vertex::engine
                     asks_.erase(level_it);
                 }
             }
-            if (order.get()->is_active())
+            if (order.is_active())
             {
                 auto level_it = bids_.find(price);
 
                 if (level_it == bids_.end())
                 {
-                    auto [it, inserted] = bids_.emplace(price, std::list<std::unique_ptr<Order>>{});
+                    auto [it, inserted] = bids_.emplace(price, std::list<RestingOrder>{});
                     auto &orders = it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
+                    auto order_it = orders.insert(orders.end(), order);
 
                     index_[order_id] = {side, price, order_it};
                 }
                 else
                 {
                     auto &orders = level_it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
+                    auto order_it = orders.insert(orders.end(), order);
                     index_[order_id] = {side, price, order_it};
                 }
             }
         }
         else
         {
-            while (order->remaining_quantity() > 0 && !bids_.empty() && bids_.begin()->first >= price)
+            while (order.remaining_base_quantity > 0 && !bids_.empty() && bids_.begin()->first >= price)
             {
 
                 auto level_it = bids_.begin(); // It for Prices/PriceLvl in bids list
@@ -80,18 +87,18 @@ namespace vertex::engine
                 auto &level = level_it->second;         // Price Lvl
                 auto resting_it = level.orders.begin(); // It for begin of orders in PriceLvl list
 
-                Order &resting = **resting_it;
+                RestingOrder &resting = *resting_it;
 
-                Quantity executed = std::min(order->remaining_quantity(), resting.remaining_quantity());
+                Quantity executed = std::min(order.remaining_base_quantity, resting.remaining_base_quantity);
 
                 resting.reduce(executed);
-                order->reduce(executed);
+                order.reduce(executed);
 
-                result.push_back({resting.id(), order_id, executed, level_it->first, resting.price(), resting.is_filled(), order->is_filled()});
+                result.push_back({resting.order_id, order_id, executed, level_it->first, resting.limit_price, resting.is_filled(), order.is_filled()});
 
                 if (resting.is_filled())
                 {
-                    index_.erase(resting.id());
+                    index_.erase(resting.order_id);
                     level.orders.erase(resting_it);
                 }
 
@@ -101,7 +108,7 @@ namespace vertex::engine
                 }
             }
 
-            if (order.get()->is_active())
+            if (order.is_active())
             {
 
                 auto level_it = asks_.find(price);
@@ -109,16 +116,16 @@ namespace vertex::engine
                 if (level_it == asks_.end())
                 {
 
-                    auto [it, inserted] = asks_.emplace(price, std::list<std::unique_ptr<Order>>{});
+                    auto [it, inserted] = asks_.emplace(price, std::list<RestingOrder>{});
                     auto &orders = it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
+                    auto order_it = orders.insert(orders.end(), order);
 
                     index_[order_id] = {side, price, order_it};
                 }
                 else
                 {
                     auto &orders = level_it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
+                    auto order_it = orders.insert(orders.end(), order);
                     index_[order_id] = {side, price, order_it};
                 }
             }
@@ -145,22 +152,22 @@ namespace vertex::engine
                 auto &level = level_it->second;
                 auto resting_it = level.orders.begin();
 
-                Order &resting_order = **resting_it;
+                RestingOrder &resting_order = *resting_it;
                 Price price = level_it->first;
 
                 auto remaining_quote = order->remaining_quantity(); // quote budget remaining
                 auto max_base = remaining_quote / price;            // how much base we can buy at this price
-                auto executed_base = std::min(max_base, resting_order.remaining_quantity());
+                auto executed_base = std::min(max_base, resting_order.remaining_base_quantity);
 
                 // intiger math gouard
-                if (executed_base <= 0) 
+                if (executed_base <= 0)
                     break;
 
                 resting_order.reduce(executed_base);
                 order->reduce(executed_base * price);
 
                 result.push_back({order_id,
-                                  resting_order.id(),
+                                  resting_order.order_id,
                                   executed_base,
                                   price,
                                   price,
@@ -169,7 +176,7 @@ namespace vertex::engine
 
                 if (resting_order.is_filled())
                 {
-                    index_.erase(resting_order.id());
+                    index_.erase(resting_order.order_id);
                     level.orders.erase(resting_it);
                 }
                 if (level.orders.empty())
@@ -186,15 +193,15 @@ namespace vertex::engine
                 auto &level = level_it->second;
                 auto resting_it = level.orders.begin();
 
-                Order &resting_order = **resting_it;
+                RestingOrder &resting_order = *resting_it;
                 Price price = level_it->first;
-                
-                auto executed_quantity = std::min(order->remaining_quantity(), resting_order.remaining_quantity());
+
+                auto executed_quantity = std::min(order->remaining_quantity(), resting_order.remaining_base_quantity);
 
                 resting_order.reduce(executed_quantity);
                 order->reduce(executed_quantity);
 
-                result.push_back({resting_order.id(),
+                result.push_back({resting_order.order_id,
                                   order->id(),
                                   executed_quantity,
                                   price,
@@ -204,7 +211,7 @@ namespace vertex::engine
 
                 if (resting_order.is_filled())
                 {
-                    index_.erase(resting_order.id());
+                    index_.erase(resting_order.order_id);
                     level.orders.erase(resting_it);
                 }
                 if (level.orders.empty())
@@ -233,13 +240,13 @@ namespace vertex::engine
         auto order_it = order_location_it->second.it;
 
         result.id = order_id;
-        result.side = order_it->get()->side();
-        result.price = order_it->get()->price();
-        result.remaining_quantity = order_it->get()->remaining_quantity();
+        result.side = order_location_it->second.side;
+        result.price = order_it->limit_price;
+        result.remaining_quantity = order_it->remaining_base_quantity;
 
-        if (order_it->get()->side() == Side::Buy)
+        if (order_location_it->second.side == Side::Buy)
         {
-            auto level_it = bids_.find(order_it->get()->price());
+            auto level_it = bids_.find(order_it->limit_price);
 
             if (level_it != bids_.end())
             {
@@ -252,7 +259,7 @@ namespace vertex::engine
         }
         else
         {
-            auto level_it = asks_.find(order_it->get()->price());
+            auto level_it = asks_.find(order_it->limit_price);
 
             if (level_it != asks_.end())
             {
