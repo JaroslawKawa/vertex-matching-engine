@@ -98,6 +98,10 @@ Current behavior:
 - does not insert market order remainder into the book
 - removes filled resting orders from level + index
 - removes empty price levels
+- quantity semantics are side-dependent in current implementation:
+- `BUY`: `remaining_quantity` is quote-budget remaining (amount you can still spend)
+- `SELL`: `remaining_quantity` is base quantity remaining to sell
+- `BUY` uses integer math (`remaining_quote / price`) so execution stops when remaining budget is below best ask price
 
 Current contract:
 

@@ -245,13 +245,14 @@ TEST(OrderBookTest, ExecuteMarketBuyWithoutLiquidityReturnsNoExecutionsAndDoesNo
     EXPECT_FALSE(book.cancel(OrderId{90}).has_value());
 }
 
-TEST(OrderBookTest, ExecuteMarketBuySweepsAsksAndLeavesOnlyRestingRemainder)
+TEST(OrderBookTest, ExecuteMarketBuyQuoteBudgetSweepsAsksAndLeavesOnlyRestingRemainder)
 {
     OrderBook book{btc_usdt()};
     EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{91}, vertex::core::UserId{111}, Side::Sell, 2, 100)).empty());
     EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{92}, vertex::core::UserId{112}, Side::Sell, 3, 101)).empty());
 
-    const auto executions = book.execute_market_order(make_market_order(OrderId{93}, vertex::core::UserId{113}, Side::Buy, 4));
+    // BUY market quantity is quote budget here: 2*100 + 2*101 = 402
+    const auto executions = book.execute_market_order(make_market_order(OrderId{93}, vertex::core::UserId{113}, Side::Buy, 402));
 
     ASSERT_EQ(executions.size(), 2u);
     EXPECT_EQ(executions[0].buy_order_id, OrderId{93});

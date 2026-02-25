@@ -139,7 +139,8 @@ TEST(MatchingEngineTest, ExecuteMarketOrderRoutesToRegisteredOrderBook)
     EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{550}, vertex::core::UserId{25}, Side::Sell, 2, 100)).empty());
     EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{551}, vertex::core::UserId{26}, Side::Sell, 3, 101)).empty());
 
-    const auto executions = engine.execute_market_order(make_market_order(btc_usdt(), OrderId{552}, vertex::core::UserId{27}, Side::Buy, 4));
+    // BUY market quantity is quote budget here: 2*100 + 2*101 = 402
+    const auto executions = engine.execute_market_order(make_market_order(btc_usdt(), OrderId{552}, vertex::core::UserId{27}, Side::Buy, 402));
 
     ASSERT_EQ(executions.size(), 2u);
     EXPECT_EQ(executions[0].buy_order_id, OrderId{552});
@@ -178,7 +179,7 @@ TEST(MatchingEngineTest, ExecuteMarketOrderIsIsolatedByMarket)
     EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{570}, vertex::core::UserId{29}, Side::Sell, 1, 100)).empty());
     EXPECT_TRUE(engine.add_limit_order(make_limit_order(eth_usdt(), OrderId{571}, vertex::core::UserId{30}, Side::Sell, 2, 1000)).empty());
 
-    const auto btc_exec = engine.execute_market_order(make_market_order(btc_usdt(), OrderId{572}, vertex::core::UserId{31}, Side::Buy, 1));
+    const auto btc_exec = engine.execute_market_order(make_market_order(btc_usdt(), OrderId{572}, vertex::core::UserId{31}, Side::Buy, 100));
     ASSERT_EQ(btc_exec.size(), 1u);
     EXPECT_EQ(btc_exec.front().sell_order_id, OrderId{570});
 
