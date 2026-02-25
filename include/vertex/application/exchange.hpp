@@ -14,6 +14,7 @@
 #include "vertex/domain/user.hpp"
 #include "vertex/domain/wallet.hpp"
 #include "vertex/engine/matching_engine.hpp"
+#include "vertex/engine/order_request.hpp"
 namespace vertex::application
 {
     using TradeHistory = vertex::application::TradeHistory;
@@ -36,7 +37,8 @@ namespace vertex::application
     using Market = vertex::core::Market;
     using Execution = vertex::engine::Execution;
     using Trade = vertex::domain::Trade;
-
+    using LimitOrderRequest = vertex::engine::LimitOrderRequest;
+    using MarketBuyByQuoteRequest = vertex::engine::MarketBuyByQuoteRequest;
     enum class WalletOperationError
     {
         UserNotFound,

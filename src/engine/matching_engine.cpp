@@ -78,19 +78,19 @@ namespace vertex::engine
                 [this](const LimitOrderRequest &req) -> std::vector<Execution>
                 {
                     auto order = std::make_unique<LimitOrder>(
-                        req.request_id, req.user_id, req.market, req.side, req.base_quantity, req.limit_price);
+                        req.order_id, req.user_id, req.market, req.side, req.base_quantity, req.limit_price);
                     return add_limit_order(std::move(order));
                 },
                 [this](const MarketBuyByQuoteRequest &req) -> std::vector<Execution>
                 {
                     auto order = std::make_unique<MarketOrder>(
-                        req.request_id, req.user_id, req.market, Side::Buy, req.quote_budget);
+                        req.order_id, req.user_id, req.market, Side::Buy, req.quote_budget);
                     return execute_market_order(std::move(order));
                 },
                 [this](const MarketSellByBaseRequest &req) -> std::vector<Execution>
                 {
                     auto order = std::make_unique<MarketOrder>(
-                        req.request_id, req.user_id, req.market, Side::Sell, req.base_quantity);
+                        req.order_id, req.user_id, req.market, Side::Sell, req.base_quantity);
                     return execute_market_order(std::move(order));
                 }},
             order_request);

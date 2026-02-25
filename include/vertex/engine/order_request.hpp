@@ -10,10 +10,10 @@ namespace vertex::engine
     using Price = vertex::core::Price;
     using Side = vertex::core::Side;
     using Quantity = vertex::core::Quantity;
-    
+
     struct LimitOrderRequest
     {
-        OrderId request_id;
+        OrderId order_id;
         UserId user_id;
         Market market;
         Side side;
@@ -23,14 +23,14 @@ namespace vertex::engine
 
     struct MarketBuyByQuoteRequest
     {
-        OrderId request_id;
+        OrderId order_id;
         UserId user_id;
         Market market;
         Quantity quote_budget;
     };
     struct MarketSellByBaseRequest
     {
-        OrderId request_id;
+        OrderId order_id;
         UserId user_id;
         Market market;
         Quantity base_quantity;

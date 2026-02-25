@@ -218,16 +218,23 @@ namespace vertex::application
         if (!reserve_result)
             return std::unexpected(PlaceOrderError::InsufficientFunds);
 
-        std::unique_ptr<LimitOrder> order = std::make_unique<LimitOrder>(order_id_generator_.next(), user_id, market, side, quantity, price);
+        LimitOrderRequest limit_order_request{
+            .order_id = order_id_generator_.next(),
+            .user_id = user_id,
+            .market = market,
+            .side = side,
+            .limit_price = price,
+            .base_quantity = quantity
+        };
 
-        orders_[order->id()] = user_id;
-        orders_market_.insert_or_assign(order->id(), market);
+        orders_[limit_order_request.order_id] = user_id;
+        orders_market_.insert_or_assign(limit_order_request.order_id, market);
 
-        order_result.order_id = order->id();
+        order_result.order_id = limit_order_request.order_id;
         order_result.remaining_quantity = quantity;
         order_result.filled_quantity = 0;
 
-        std::vector<Execution> matching_result = matching_engine_.add_limit_order(std::move(order));
+        std::vector<Execution> matching_result = matching_engine_.submit(limit_order_request);
 
         if (!matching_result.empty())
         {
@@ -311,7 +318,9 @@ namespace vertex::application
             return std::unexpected(PlaceOrderError::InsufficientFunds);
 
         OrderPlacementResult order_result;
+
         std::unique_ptr<MarketOrder> order = std::make_unique<MarketOrder>(order_id_generator_.next(), user_id, market, side, order_quantity);
+        
         order_result.order_id = order->id();
         order_result.remaining_quantity = order_quantity;
         order_result.filled_quantity = 0;
