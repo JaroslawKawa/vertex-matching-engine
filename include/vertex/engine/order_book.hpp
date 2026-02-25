@@ -19,10 +19,8 @@ namespace vertex::engine
     using Side = vertex::core::Side;
     using Price = vertex::core::Price;
     using OrderId = vertex::core::OrderId;
-    using Order = vertex::domain::Order;
     using LimitOrder = vertex::domain::LimitOrder;
     using MarketOrder = vertex::domain::MarketOrder;
-    using RestingOrder = vertex::engine::RestingOrder;
 
     struct OrderLocation
     {
@@ -68,6 +66,8 @@ namespace vertex::engine
         std::optional<CancelResult> cancel(OrderId order_id);
         std::optional<Price> best_bid() const;
         std::optional<Price> best_ask() const;
+
+        void insert_resting(Side side, const RestingOrder &order);
     };
 
 }
