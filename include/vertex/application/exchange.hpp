@@ -8,6 +8,7 @@
 #include "vertex/core/id_generator.hpp"
 #include "vertex/core/types.hpp"
 #include "vertex/domain/order.hpp"
+#include "vertex/domain/market_order.hpp"
 #include "vertex/domain/limit_order.hpp"
 #include "vertex/domain/trade.hpp"
 #include "vertex/domain/user.hpp"
@@ -22,6 +23,7 @@ namespace vertex::application
     using OrderId = vertex::core::OrderId;
     using Order = vertex::domain::Order;
     using LimitOrder = vertex::domain::LimitOrder;
+    using MarketOrder = vertex::domain::MarketOrder;
     using OrderIdGenerator = vertex::core::IdGenerator<OrderId>;
     using TradeId = vertex::core::TradeId;
     using TradeIdGenerator = vertex::core::IdGenerator<TradeId>;
@@ -109,7 +111,8 @@ namespace vertex::application
         std::expected<Quantity, WalletOperationError> free_balance(const UserId user_id, const Asset &asset) const;
         std::expected<Quantity, WalletOperationError> reserved_balance(const UserId user_id, const Asset &asset) const;
 
-        std::expected<OrderPlacementResult, PlaceOrderError> place_limit_order(const UserId user_id, const Market &market, Side side, Price price, const Quantity quantity);
+        std::expected<OrderPlacementResult, PlaceOrderError> place_limit_order(const UserId user_id, const Market &market, const Side side, const Price price, const Quantity quantity);
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_order(const UserId user_id, const Market &market, const Side side, const Quantity order_quantity);
         std::expected<CancelOrderResult, CancelOrderError> cancel_order(const UserId user_id, const OrderId order_id);
         std::expected<void, RegisterMarketError> register_market(const Market &market);
     };

@@ -286,9 +286,121 @@ namespace vertex::application
         return order_result;
     }
 
+    std::expected<OrderPlacementResult, PlaceOrderError> Exchange::execute_market_order(const UserId user_id, const Market &market, const Side side, const Quantity order_quantity)
+    {
+        if (!user_id.is_valid())
+            return std::unexpected(PlaceOrderError::UserNotFound);
+
+        if (!matching_engine_.has_market(market))
+            return std::unexpected(PlaceOrderError::MarketNotListed);
+
+        if (order_quantity <= 0)
+            return std::unexpected(PlaceOrderError::InvalidQuantity);
+
+        auto user_it = wallets_.find(user_id);
+
+        if (user_it == wallets_.end())
+            return std::unexpected(PlaceOrderError::UserNotFound);
+
+        Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
+
+        Wallet &user_wallet = user_it->second;
+        auto reserve_result = user_wallet.reserve(asset_to_reserve, order_quantity);
+
+        if (!reserve_result)
+            return std::unexpected(PlaceOrderError::InsufficientFunds);
+
+        OrderPlacementResult order_result;
+        std::unique_ptr<MarketOrder> order = std::make_unique<MarketOrder>(order_id_generator_.next(), user_id, market, side, order_quantity);
+        order_result.order_id = order->id();
+        order_result.remaining_quantity = order_quantity;
+        order_result.filled_quantity = 0;
+        std::vector<Execution> execution_result = matching_engine_.execute_market_order(std::move(order));
+
+        if (!execution_result.empty())
+        {
+
+            if (Side::Buy == side)
+            {
+
+                for (const auto &execution : execution_result)
+                {
+                    OrderId seller_order_id = execution.sell_order_id;
+                    assert(orders_.find(seller_order_id) != orders_.end());
+                    UserId seller_user_id = orders_.find(seller_order_id)->second;
+                    Wallet &buyer_wallet = user_wallet;
+                    Wallet &seller_wallet = wallets_.find(seller_user_id)->second;
+
+                    const auto buyer_consume_result = buyer_wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
+                    assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
+                    const auto buyer_deposit_result = buyer_wallet.deposit(market.base(), execution.quantity);
+                    assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+
+                    const auto seller_consume_result = seller_wallet.consume_reserved(market.base(), execution.quantity);
+                    assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
+                    const auto seller_deposit_result = seller_wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
+                    assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
+
+                    order_result.remaining_quantity -= execution.quantity * execution.execution_price;
+                    order_result.filled_quantity += execution.quantity * execution.execution_price;
+
+                    Trade trade{trade_id_generator_.next(), user_id, seller_user_id, order_result.order_id, seller_order_id, market, execution.quantity, execution.execution_price};
+
+                    trade_history_.add(std::move(trade));
+
+                    if (execution.sell_fully_filled)
+                    {
+                        orders_.erase(execution.sell_order_id);
+                        orders_market_.erase(execution.sell_order_id);
+                    }
+                }
+            }
+            else
+            {
+                for (const auto &execution : execution_result)
+                {
+                    OrderId buyer_order_id = execution.buy_order_id;
+                    assert(orders_.find(buyer_order_id) != orders_.end());
+                    UserId buyer_user_id = orders_.find(buyer_order_id)->second;
+                    Wallet &buyer_wallet = wallets_.find(buyer_user_id)->second;
+                    Wallet &seller_wallet = user_wallet;
+
+                    const auto buyer_consume_result = buyer_wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
+                    assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
+                    const auto buyer_deposit_result = buyer_wallet.deposit(market.base(), execution.quantity);
+                    assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+
+                    const auto seller_consume_result = seller_wallet.consume_reserved(market.base(), execution.quantity);
+                    assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
+                    const auto seller_deposit_result = seller_wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
+                    assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
+
+                    order_result.remaining_quantity -= execution.quantity;
+                    order_result.filled_quantity += execution.quantity;
+
+                    Trade trade{trade_id_generator_.next(), buyer_user_id, user_id, buyer_order_id, order_result.order_id, market, execution.quantity, execution.execution_price};
+
+                    trade_history_.add(std::move(trade));
+
+                    if (execution.buy_fully_filled)
+                    {
+                        orders_.erase(execution.buy_order_id);
+                        orders_market_.erase(execution.buy_order_id);
+                    }
+                }
+            }
+        }
+        if (order_result.remaining_quantity > 0)
+        {
+            const auto taker_release_result = user_wallet.release(asset_to_reserve, order_result.remaining_quantity);
+            assert(taker_release_result && "Invariant violated: taker release failed after market buy");
+        }
+
+        return order_result;
+    }
+
     std::expected<CancelOrderResult, CancelOrderError> Exchange::cancel_order(const UserId user_id, const OrderId order_id)
     {
-
         if (users_.find(user_id) == users_.end())
             return std::unexpected(CancelOrderError::UserNotFound);
 
@@ -331,7 +443,7 @@ namespace vertex::application
             result.side = Side::Sell;
         }
 
-        result.id=order_id;
+        result.id = order_id;
         result.remaining_quantity = cancel_result->remaining_quantity;
         orders_.erase(order_id);
         orders_market_.erase(order_id);
