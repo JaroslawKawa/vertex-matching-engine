@@ -115,6 +115,9 @@ Current behavior / note:
 
 - `price()` exists only because `Order` currently requires it
 - calling `price()` on `MarketOrder` is an invariant violation (debug `assert`) and returns `0` after the assert path
+- `initial_quantity` / `remaining_quantity` are interpreted by the matching path:
+- for `BUY` market orders: quote budget (amount to spend)
+- for `SELL` market orders: base quantity (amount to sell)
 
 This is a transitional compatibility shape while engine/application APIs are being extended for market-order routing.
 

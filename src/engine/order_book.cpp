@@ -146,17 +146,24 @@ namespace vertex::engine
                 auto resting_it = level.orders.begin();
 
                 Order &resting_order = **resting_it;
+                Price price = level_it->first;
 
-                auto executed_quantity = std::min(order->remaining_quantity(), resting_order.remaining_quantity());
+                auto remaining_quote = order->remaining_quantity(); // quote budget remaining
+                auto max_base = remaining_quote / price;            // how much base we can buy at this price
+                auto executed_base = std::min(max_base, resting_order.remaining_quantity());
 
-                resting_order.reduce(executed_quantity);
-                order->reduce(executed_quantity);
+                // intiger math gouard
+                if (executed_base <= 0) 
+                    break;
+
+                resting_order.reduce(executed_base);
+                order->reduce(executed_base * price);
 
                 result.push_back({order_id,
                                   resting_order.id(),
-                                  executed_quantity,
-                                  level_it->first,
-                                  level_it->first,
+                                  executed_base,
+                                  price,
+                                  price,
                                   order->is_filled(),
                                   resting_order.is_filled()});
 
@@ -180,7 +187,8 @@ namespace vertex::engine
                 auto resting_it = level.orders.begin();
 
                 Order &resting_order = **resting_it;
-
+                Price price = level_it->first;
+                
                 auto executed_quantity = std::min(order->remaining_quantity(), resting_order.remaining_quantity());
 
                 resting_order.reduce(executed_quantity);
@@ -189,8 +197,8 @@ namespace vertex::engine
                 result.push_back({resting_order.id(),
                                   order->id(),
                                   executed_quantity,
-                                  level_it->first,
-                                  level_it->first,
+                                  price,
+                                  price,
                                   resting_order.is_filled(),
                                   order->is_filled()});
 
