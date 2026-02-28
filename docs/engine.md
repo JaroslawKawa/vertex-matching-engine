@@ -4,16 +4,76 @@ This document reflects the current implementation in `include/vertex/engine/*` a
 
 ## Scope
 
-Engine layer is responsible for deterministic order matching and routing by market.
+Engine layer is responsible for deterministic matching and market-level routing.
 
-Components:
+Main components:
 
+- `OrderRequest` (incoming request model)
+- `RestingOrder` (booked passive order model)
 - `OrderBook` (single market)
-- `MatchingEngine` (multiple markets)
+- `MatchingEngine` (multi-market router)
+
+Engine does not manage wallet balances or user settlement.
+
+## Request Model (`order_request.hpp`)
+
+Incoming requests are represented by `std::variant`:
+
+- `LimitOrderRequest`
+- `MarketBuyByQuoteRequest`
+- `MarketSellByBaseRequest`
+
+### LimitOrderRequest
+
+Fields:
+
+- `OrderId id`
+- `UserId user_id`
+- `Market market`
+- `Side side`
+- `Price limit_price`
+- `Quantity base_quantity`
+
+### MarketBuyByQuoteRequest
+
+Fields:
+
+- `OrderId id`
+- `UserId user_id`
+- `Market market`
+- `Quantity quote_budget`
+
+### MarketSellByBaseRequest
+
+Fields:
+
+- `OrderId id`
+- `UserId user_id`
+- `Market market`
+- `Quantity base_quantity`
+
+## RestingOrder (`resting_order.hpp`)
+
+Represents passive order already stored in the book.
+
+Fields:
+
+- `OrderId id`
+- `Price limit_price`
+- `Quantity initial_base_quantity`
+- `Quantity remaining_base_quantity`
+
+Helpers:
+
+- `reduce(executed)`
+- `is_filled()`
+- `is_active()`
+
+`reduce` enforces invariant via `assert(executed > 0 && executed <= remaining_base_quantity)`.
 
 ## OrderBook
 
-`OrderBook` is bound to exactly one `Market` (`market_`).
+`OrderBook` is bound to exactly one `Market`.
 
 Internal structures:
 
@@ -21,17 +81,28 @@ Internal structures:
 - `asks_`: `std::map<Price, PriceLevel, std::less<>>`
 - `index_`: `std::unordered_map<OrderId, OrderLocation>`
 
-`PriceLevel` stores FIFO list of orders:
+`PriceLevel` stores FIFO list:
 
-- `std::list<std::unique_ptr<Order>> orders`
+- `std::list<RestingOrder> orders`
+
+### Public API
+
+- `insert_resting(Side side, RestingOrder&& order)`
+- `match_limit_buy_against_asks(OrderId taker_order_id, Price limit_price, Quantity& remaining_base_quantity)`
+- `match_limit_sell_against_bids(OrderId taker_order_id, Price limit_price, Quantity& remaining_base_quantity)`
+- `match_market_buy_by_quote_against_asks(OrderId taker_order_id, Quantity remaining_quote_budget)`
+- `match_market_sell_by_base_against_bids(OrderId taker_order_id, Quantity remaining_base_quantity)`
+- `cancel(OrderId)`
+- `best_bid()`
+- `best_ask()`
 
 ### Execution model
 
-Current `Execution` struct:
+`Execution` fields:
 
 - `OrderId buy_order_id`
 - `OrderId sell_order_id`
-- `Quantity quantity`
+- `Quantity quantity` (base quantity)
 - `Price execution_price`
 - `Price buy_order_limit_price`
 - `bool buy_fully_filled`
@@ -39,33 +110,13 @@ Current `Execution` struct:
 
 Behavior:
 
-- BUY order matches lowest asks while `ask_price <= buy_limit`
-- SELL order matches highest bids while `bid_price >= sell_limit`
-- per match: execute `min(incoming_remaining, resting_remaining)`
-- filled resting orders are removed from level + index
-- empty price levels are removed
-- remaining incoming quantity is inserted into correct side book
-
-Current order-routing API in `OrderBook`:
-
-- `std::vector<Execution> add_limit_order(std::unique_ptr<LimitOrder> order)`
-- `std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order)`
-
-### Cancel
-
-`cancel(OrderId)` returns `std::optional<CancelResult>` with:
-
-- `id`
-- `side`
-- `price`
-- `remaining_quantity`
-
-Returns `nullopt` when order is not found.
-
-### Best prices
-
-- `best_bid()` -> highest bid or `nullopt`
-- `best_ask()` -> lowest ask or `nullopt`
+- limit buy matches lowest asks while `ask <= limit_price`,
+- limit sell matches highest bids while `bid >= limit_price`,
+- market buy consumes asks by quote budget,
+- market sell consumes bids by base quantity,
+- filled resting orders are removed from price level and `index_`,
+- empty price levels are erased,
+- market remainder is not inserted into the book.
 
 ## MatchingEngine
 
@@ -73,37 +124,18 @@ State:
 
 - `std::unordered_map<Market, OrderBook> books_`
 
-API:
+Public API:
 
-- `std::vector<Execution> add_limit_order(std::unique_ptr<LimitOrder> order)`
-- `std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order)`
-- `std::optional<CancelResult> cancel(const Market&, OrderId)`
-- `std::optional<Price> best_bid(const Market&) const`
-- `std::optional<Price> best_ask(const Market&) const`
-- `void register_market(const Market&)`
-- `bool has_market(const Market&) const noexcept`
+- `register_market(const Market&)`
+- `has_market(const Market&) const noexcept`
+- `submit(OrderRequest&&)`
+- `cancel(const Market&, OrderId)`
+- `best_bid(const Market&) const`
+- `best_ask(const Market&) const`
 
 Behavior:
 
-- `add_limit_order`, `execute_market_order`, `cancel`, `best_bid`, and `best_ask` assert that market exists in `books_`
-- markets must be registered before use
-- `best_bid`/`best_ask` delegate to the selected `OrderBook` and return `nullopt` when that book side is empty
-- `add_limit_order` and `execute_market_order` delegate to the selected `OrderBook`
-
-### `OrderBook::execute_market_order`
-
-Current behavior:
-
-- matches against opposite side until incoming order is filled or book side becomes empty
-- does not insert market order remainder into the book
-- removes filled resting orders from level + index
-- removes empty price levels
-- quantity semantics are side-dependent in current implementation:
-- `BUY`: `remaining_quantity` is quote-budget remaining (amount you can still spend)
-- `SELL`: `remaining_quantity` is base quantity remaining to sell
-- `BUY` uses integer math (`remaining_quote / price`) so execution stops when remaining budget is below best ask price
-
-Current contract:
-
-- method accepts `std::unique_ptr<MarketOrder>`
-- market-order remainder is not inserted into the book (remaining quantity is dropped)
+- `submit(...)` uses `std::visit` and dispatches by request type,
+- limit request is matched first; if remainder exists, it is converted to `RestingOrder` and inserted via `insert_resting`,
+- market requests only match against current book liquidity,
+- `cancel`, `best_bid`, `best_ask`, and request handlers assert that market is registered.
