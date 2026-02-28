@@ -14,7 +14,9 @@ namespace
     using vertex::core::Side;
     using vertex::domain::LimitOrder;
     using vertex::domain::MarketOrder;
+    using vertex::engine::Execution;
     using vertex::engine::OrderBook;
+    using vertex::engine::RestingOrder;
 
     Market btc_usdt()
     {
@@ -39,6 +41,27 @@ namespace
     {
         return std::make_unique<MarketOrder>(order_id, user_id, btc_usdt(), side, quantity);
     }
+
+    std::vector<Execution> submit_limit_order(OrderBook &book, std::unique_ptr<LimitOrder> order)
+    {
+        vertex::core::Quantity remaining = order->remaining_quantity();
+        std::vector<Execution> executions = order->side() == Side::Buy
+                                                ? book.match_limit_buy_against_asks(order->id(), order->price(), remaining)
+                                                : book.match_limit_sell_against_bids(order->id(), order->price(), remaining);
+
+        if (remaining > 0)
+        {
+            RestingOrder resting{
+                .order_id = order->id(),
+                .limit_price = order->price(),
+                .initial_base_quantity = order->initial_quantity(),
+                .remaining_base_quantity = remaining,
+            };
+            book.insert_resting(order->side(), std::move(resting));
+        }
+
+        return executions;
+    }
 }
 
 TEST(OrderBookTest, BestBidAndAskAreEmptyOnNewBook)
@@ -53,7 +76,7 @@ TEST(OrderBookTest, AddBuyWithoutMatchUpdatesBestBid)
 {
     OrderBook book{btc_usdt()};
 
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{1}, vertex::core::UserId{10}, Side::Buy, 5, 101));
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{1}, vertex::core::UserId{10}, Side::Buy, 5, 101));
 
     EXPECT_TRUE(executions.empty());
     ASSERT_TRUE(book.best_bid().has_value());
@@ -65,7 +88,7 @@ TEST(OrderBookTest, AddSellWithoutMatchUpdatesBestAsk)
 {
     OrderBook book{btc_usdt()};
 
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{2}, vertex::core::UserId{20}, Side::Sell, 3, 110));
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{2}, vertex::core::UserId{20}, Side::Sell, 3, 110));
 
     EXPECT_TRUE(executions.empty());
     ASSERT_TRUE(book.best_ask().has_value());
@@ -76,9 +99,9 @@ TEST(OrderBookTest, AddSellWithoutMatchUpdatesBestAsk)
 TEST(OrderBookTest, IncomingBuyMatchesRestingSell)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{11}, vertex::core::UserId{31}, Side::Sell, 4, 100)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{11}, vertex::core::UserId{31}, Side::Sell, 4, 100)).empty());
 
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{12}, vertex::core::UserId{32}, Side::Buy, 4, 105));
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{12}, vertex::core::UserId{32}, Side::Buy, 4, 105));
 
     ASSERT_EQ(executions.size(), 1u);
     const auto &execution = executions.front();
@@ -96,9 +119,9 @@ TEST(OrderBookTest, IncomingBuyMatchesRestingSell)
 TEST(OrderBookTest, PartialMatchLeavesRestingRemainder)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{21}, vertex::core::UserId{41}, Side::Sell, 10, 200)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{21}, vertex::core::UserId{41}, Side::Sell, 10, 200)).empty());
 
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{22}, vertex::core::UserId{42}, Side::Buy, 4, 210));
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{22}, vertex::core::UserId{42}, Side::Buy, 4, 210));
 
     ASSERT_EQ(executions.size(), 1u);
     EXPECT_TRUE(executions.front().buy_fully_filled);
@@ -121,7 +144,7 @@ TEST(OrderBookTest, CancelUnknownOrderReturnsNullopt)
 TEST(OrderBookTest, CancelExistingOrderRemovesPriceLevel)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{31}, vertex::core::UserId{51}, Side::Buy, 7, 123)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{31}, vertex::core::UserId{51}, Side::Buy, 7, 123)).empty());
     ASSERT_TRUE(book.best_bid().has_value());
 
     const auto cancel_result = book.cancel(OrderId{31});
@@ -138,8 +161,8 @@ TEST(OrderBookTest, NonCrossingOrdersDoNotExecute)
 {
     OrderBook book{btc_usdt()};
 
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{41}, vertex::core::UserId{61}, Side::Buy, 3, 90)).empty());
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{42}, vertex::core::UserId{62}, Side::Sell, 2, 95));
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{41}, vertex::core::UserId{61}, Side::Buy, 3, 90)).empty());
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{42}, vertex::core::UserId{62}, Side::Sell, 2, 95));
 
     EXPECT_TRUE(executions.empty());
     ASSERT_TRUE(book.best_bid().has_value());
@@ -151,11 +174,11 @@ TEST(OrderBookTest, NonCrossingOrdersDoNotExecute)
 TEST(OrderBookTest, IncomingBuySweepsMultipleAskLevels)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{51}, vertex::core::UserId{71}, Side::Sell, 2, 100)).empty());
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{52}, vertex::core::UserId{72}, Side::Sell, 3, 101)).empty());
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{53}, vertex::core::UserId{73}, Side::Sell, 4, 102)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{51}, vertex::core::UserId{71}, Side::Sell, 2, 100)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{52}, vertex::core::UserId{72}, Side::Sell, 3, 101)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{53}, vertex::core::UserId{73}, Side::Sell, 4, 102)).empty());
 
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{54}, vertex::core::UserId{74}, Side::Buy, 7, 102));
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{54}, vertex::core::UserId{74}, Side::Buy, 7, 102));
 
     ASSERT_EQ(executions.size(), 3u);
     EXPECT_EQ(executions[0].sell_order_id, OrderId{51});
@@ -182,10 +205,10 @@ TEST(OrderBookTest, IncomingBuySweepsMultipleAskLevels)
 TEST(OrderBookTest, FIFOIsRespectedWithinSamePriceLevel)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{61}, vertex::core::UserId{81}, Side::Sell, 2, 100)).empty());
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{62}, vertex::core::UserId{82}, Side::Sell, 2, 100)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{61}, vertex::core::UserId{81}, Side::Sell, 2, 100)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{62}, vertex::core::UserId{82}, Side::Sell, 2, 100)).empty());
 
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{63}, vertex::core::UserId{83}, Side::Buy, 3, 100));
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{63}, vertex::core::UserId{83}, Side::Buy, 3, 100));
 
     ASSERT_EQ(executions.size(), 2u);
     EXPECT_EQ(executions[0].sell_order_id, OrderId{61});
@@ -204,9 +227,9 @@ TEST(OrderBookTest, FIFOIsRespectedWithinSamePriceLevel)
 TEST(OrderBookTest, SellInitiatedExecutionCarriesRestingBuyLimitPrice)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{71}, vertex::core::UserId{91}, Side::Buy, 5, 105)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{71}, vertex::core::UserId{91}, Side::Buy, 5, 105)).empty());
 
-    const auto executions = book.add_limit_order(make_limit_order(OrderId{72}, vertex::core::UserId{92}, Side::Sell, 3, 100));
+    const auto executions = submit_limit_order(book, make_limit_order(OrderId{72}, vertex::core::UserId{92}, Side::Sell, 3, 100));
 
     ASSERT_EQ(executions.size(), 1u);
     EXPECT_EQ(executions.front().buy_order_id, OrderId{71});
@@ -220,9 +243,9 @@ TEST(OrderBookTest, SellInitiatedExecutionCarriesRestingBuyLimitPrice)
 TEST(OrderBookTest, CancelRemovesOnlySelectedOrderAndKeepsOtherLevels)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{81}, vertex::core::UserId{101}, Side::Buy, 1, 99)).empty());
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{82}, vertex::core::UserId{102}, Side::Buy, 1, 101)).empty());
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{83}, vertex::core::UserId{103}, Side::Buy, 1, 100)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{81}, vertex::core::UserId{101}, Side::Buy, 1, 99)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{82}, vertex::core::UserId{102}, Side::Buy, 1, 101)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{83}, vertex::core::UserId{103}, Side::Buy, 1, 100)).empty());
 
     const auto cancel_mid = book.cancel(OrderId{83});
     ASSERT_TRUE(cancel_mid.has_value());
@@ -248,8 +271,8 @@ TEST(OrderBookTest, ExecuteMarketBuyWithoutLiquidityReturnsNoExecutionsAndDoesNo
 TEST(OrderBookTest, ExecuteMarketBuyQuoteBudgetSweepsAsksAndLeavesOnlyRestingRemainder)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{91}, vertex::core::UserId{111}, Side::Sell, 2, 100)).empty());
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{92}, vertex::core::UserId{112}, Side::Sell, 3, 101)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{91}, vertex::core::UserId{111}, Side::Sell, 2, 100)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{92}, vertex::core::UserId{112}, Side::Sell, 3, 101)).empty());
 
     // BUY market quantity is quote budget here: 2*100 + 2*101 = 402
     const auto executions = book.execute_market_order(make_market_order(OrderId{93}, vertex::core::UserId{113}, Side::Buy, 402));
@@ -283,8 +306,8 @@ TEST(OrderBookTest, ExecuteMarketBuyQuoteBudgetSweepsAsksAndLeavesOnlyRestingRem
 TEST(OrderBookTest, ExecuteMarketSellConsumesBidsAndUnfilledRemainderIsDropped)
 {
     OrderBook book{btc_usdt()};
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{94}, vertex::core::UserId{114}, Side::Buy, 2, 105)).empty());
-    EXPECT_TRUE(book.add_limit_order(make_limit_order(OrderId{95}, vertex::core::UserId{115}, Side::Buy, 1, 104)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{94}, vertex::core::UserId{114}, Side::Buy, 2, 105)).empty());
+    EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{95}, vertex::core::UserId{115}, Side::Buy, 1, 104)).empty());
 
     const auto executions = book.execute_market_order(make_market_order(OrderId{96}, vertex::core::UserId{116}, Side::Sell, 5));
 
