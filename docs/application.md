@@ -4,7 +4,13 @@ This document reflects the current implementation in `include/vertex/application
 
 ## Scope
 
-`Exchange` orchestrates users, wallets, market registration, order placement, and settlement effects from engine executions.
+`Exchange` orchestrates:
+
+- users and wallets,
+- market registration,
+- request submission to `MatchingEngine`,
+- settlement and trade recording,
+- cancel and reservation cleanup.
 
 Owned state:
 
@@ -26,7 +32,7 @@ Current enums:
 - `CancelOrderError`: `UserNotFound`, `OrderNotFound`, `NotOrderOwner`
 - `RegisterMarketError`: `AlreadyListed`, `InvalidMarket`
 
-Note: some enum values are currently unused (`WalletNotFound`, `InvalidMarket`).
+Note: some enum values are currently not used by implementation paths (`WalletNotFound`, `InvalidMarket`).
 
 ## Public API
 
@@ -48,68 +54,68 @@ Market and trading:
 - `execute_market_order(user_id, market, side, order_quantity)`
 - `cancel_order(user_id, order_id)`
 
-## Current order placement flow
+## Limit order flow
 
 `place_limit_order` currently performs:
 
-1. input checks (`user_id`, market presence, `quantity`, user wallet presence, `price`)
-2. reserve funds
-3. create `LimitOrder`
-4. store ownership/index mappings (`orders_`, `orders_market_`)
-5. route order to `matching_engine_.add_limit_order`
-6. for each `Execution`, settle wallets:
-- buyer consumes quote reserved
-- buyer receives quote refund when `buy_limit > execution_price`
-- buyer receives base asset
-- seller consumes base reserved
-- seller receives quote asset
-7. update `OrderPlacementResult` filled/remaining
-8. create `Trade` object and persist it in `TradeHistory`
-9. remove fully filled orders from ownership maps
+1. validation (`user_id`, market, `quantity`, `price`, wallet presence),
+2. reservation:
+- BUY reserves quote `price * quantity`,
+- SELL reserves base `quantity`,
+3. build `LimitOrderRequest` and submit to `matching_engine_.submit(...)`,
+4. persist ownership mapping in `orders_` and `orders_market_`,
+5. settle each `Execution`:
+- buyer consumes reserved quote,
+- buyer receives quote refund on price improvement,
+- buyer receives base,
+- seller consumes reserved base,
+- seller receives quote,
+6. write `Trade` to `TradeHistory`,
+7. remove fully filled resting orders from ownership maps,
+8. return `OrderPlacementResult`.
 
-## Current market order flow
+`OrderPlacementResult` for limit orders is in base quantity units.
 
-`execute_market_order` currently performs:
+## Market order flow
 
-1. input checks (`user_id`, market presence, `order_quantity`, user wallet presence)
-2. reserve taker funds:
-- BUY: reserve `market.quote()` using `order_quantity` as quote budget
-- SELL: reserve `market.base()` using `order_quantity` as base quantity to sell
-3. create `MarketOrder` and route it to `matching_engine_.execute_market_order`
-4. for each `Execution`, settle wallets:
-- buyer consumes quote reserved (`execution.quantity * execution.execution_price`)
-- buyer receives base asset (`execution.quantity`)
-- seller consumes base reserved (`execution.quantity`)
-- seller receives quote asset (`execution.quantity * execution.execution_price`)
-5. update `OrderPlacementResult`
-6. persist `Trade` entries in `TradeHistory`
-7. cleanup fully filled resting limit orders from ownership maps
-8. release taker remainder reservation (if any)
+`execute_market_order` currently:
+
+1. validates input,
+2. reserves taker funds:
+- BUY reserves quote budget (`order_quantity`),
+- SELL reserves base quantity (`order_quantity`),
+3. dispatches to:
+- `execute_market_buy_by_quote(...)`, or
+- `execute_market_sell_by_base(...)`,
+4. both helpers build engine request (`MarketBuyByQuoteRequest` / `MarketSellByBaseRequest`) and call `matching_engine_.submit(...)`,
+5. settles executions and appends `Trade` records,
+6. removes fully filled resting counterpart orders from ownership maps,
+7. releases taker remainder reservation (if any).
 
 Notes:
 
-- Market orders are not inserted into `orders_` / `orders_market_` (they are taker-only execution requests).
-- Because they are not persisted as open orders, `cancel_order` for a returned market-order id will return `OrderNotFound`.
-- `OrderPlacementResult` units for `execute_market_order` are currently side-dependent:
-- BUY: `filled_quantity` and `remaining_quantity` are quote amounts (spent / budget left)
-- SELL: `filled_quantity` and `remaining_quantity` are base amounts (sold / unsold)
-- This differs from `place_limit_order`, where filled/remaining are base quantities.
+- market requests are taker-only and are not persisted in `orders_` / `orders_market_`,
+- canceling such returned order id later will return `OrderNotFound`,
+- `OrderPlacementResult` units are side-dependent:
+- BUY path tracks quote spent/remaining,
+- SELL path tracks base sold/remaining.
 
-## Current cancel flow
+## Cancel flow
 
 `cancel_order` currently performs:
 
-1. validate user existence
-2. validate order existence and ownership (`orders_`)
-3. resolve market from `orders_market_`
-4. cancel order in matching engine
-5. release reserved funds:
-- BUY: release quote `remaining_quantity * price`
-- SELL: release base `remaining_quantity`
-6. remove order ownership/index mappings
-7. return `CancelOrderResult` (`id`, `side`, `remaining_quantity`)
+1. validate user and ownership,
+2. resolve order market,
+3. call `matching_engine_.cancel(...)`,
+4. release reservation:
+- BUY releases quote `remaining_quantity * price`,
+- SELL releases base `remaining_quantity`,
+5. remove ownership maps entry,
+6. return `CancelOrderResult`.
 
-## Known Gaps / Current Risks
+## Register market flow
 
-- `register_market` does not currently validate `InvalidMarket`; only duplicate check (`AlreadyListed`) is implemented.
-- `WalletNotFound` in `PlaceOrderError` is currently unused (wallet lookup maps to `UserNotFound` in current implementation).
+`register_market` currently:
+
+- returns `AlreadyListed` when market already exists,
+- otherwise registers market in matching engine and returns success.

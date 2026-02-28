@@ -7,9 +7,8 @@
 #include <unordered_map>
 #include <vector>
 #include "vertex/core/types.hpp"
-#include "vertex/domain/order.hpp"
-#include "vertex/domain/limit_order.hpp"
-#include "vertex/domain/market_order.hpp"
+#include "vertex/engine/resting_order.hpp"
+
 namespace vertex::engine
 {
     using Market = vertex::core::Market;
@@ -17,20 +16,17 @@ namespace vertex::engine
     using Side = vertex::core::Side;
     using Price = vertex::core::Price;
     using OrderId = vertex::core::OrderId;
-    using Order = vertex::domain::Order;
-    using LimitOrder = vertex::domain::LimitOrder;
-    using MarketOrder = vertex::domain::MarketOrder;
 
     struct OrderLocation
     {
         Side side;
         Price price;
-        std::list<std::unique_ptr<Order>>::iterator it;
+        std::list<RestingOrder>::iterator it;
     };
 
     struct PriceLevel
     {
-        std::list<std::unique_ptr<Order>> orders;
+        std::list<RestingOrder> orders;
     };
 
     struct Execution
@@ -60,11 +56,15 @@ namespace vertex::engine
 
     public:
         explicit OrderBook(Market market);
-        std::vector<Execution> add_limit_order(std::unique_ptr<LimitOrder> order);
-        std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order);
         std::optional<CancelResult> cancel(OrderId order_id);
         std::optional<Price> best_bid() const;
         std::optional<Price> best_ask() const;
+
+        void insert_resting(Side side, RestingOrder &&order);
+        std::vector<Execution> match_limit_buy_against_asks(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
+        std::vector<Execution> match_limit_sell_against_bids(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
+        std::vector<Execution> match_market_buy_by_quote_against_asks(const OrderId taker_order_id, Quantity remaining_quote_budget);
+        std::vector<Execution> match_market_sell_by_base_against_bids(const OrderId taker_order_id, Quantity remaining_base_quantity);
     };
 
 }

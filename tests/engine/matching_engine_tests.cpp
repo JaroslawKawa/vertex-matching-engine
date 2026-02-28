@@ -1,9 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <memory>
-
-#include "vertex/domain/limit_order.hpp"
-#include "vertex/domain/market_order.hpp"
 #include "vertex/engine/matching_engine.hpp"
 
 namespace
@@ -12,9 +8,8 @@ namespace
     using vertex::core::Market;
     using vertex::core::OrderId;
     using vertex::core::Side;
-    using vertex::domain::LimitOrder;
-    using vertex::domain::MarketOrder;
     using vertex::engine::MatchingEngine;
+    using vertex::engine::OrderRequest;
 
     Market btc_usdt()
     {
@@ -26,7 +21,7 @@ namespace
         return Market{Asset{"eth"}, Asset{"usdt"}};
     }
 
-    std::unique_ptr<LimitOrder> make_limit_order(
+    OrderRequest make_limit_order(
         const Market &market,
         OrderId order_id,
         vertex::core::UserId user_id,
@@ -34,17 +29,42 @@ namespace
         vertex::core::Quantity quantity,
         vertex::core::Price price)
     {
-        return std::make_unique<LimitOrder>(order_id, user_id, market, side, quantity, price);
+        return vertex::engine::LimitOrderRequest{
+            .id = order_id,
+            .user_id = user_id,
+            .market = market,
+            .side = side,
+            .limit_price = price,
+            .base_quantity = quantity,
+        };
     }
 
-    std::unique_ptr<MarketOrder> make_market_order(
-        const Market &market,
+    OrderRequest make_market_buy_order(
         OrderId order_id,
         vertex::core::UserId user_id,
-        Side side,
-        vertex::core::Quantity quantity)
+        const Market &market,
+        vertex::core::Quantity quote_budget)
     {
-        return std::make_unique<MarketOrder>(order_id, user_id, market, side, quantity);
+        return vertex::engine::MarketBuyByQuoteRequest{
+            .id = order_id,
+            .user_id = user_id,
+            .market = market,
+            .quote_budget = quote_budget,
+        };
+    }
+
+    OrderRequest make_market_sell_order(
+        OrderId order_id,
+        vertex::core::UserId user_id,
+        const Market &market,
+        vertex::core::Quantity base_quantity)
+    {
+        return vertex::engine::MarketSellByBaseRequest{
+            .id = order_id,
+            .user_id = user_id,
+            .market = market,
+            .base_quantity = base_quantity,
+        };
     }
 }
 
@@ -57,13 +77,13 @@ TEST(MatchingEngineTest, RegisterMarketUpdatesPresence)
     EXPECT_TRUE(engine.has_market(btc_usdt()));
 }
 
-TEST(MatchingEngineTest, AddLimitOrderRoutesToRegisteredOrderBook)
+TEST(MatchingEngineTest, SubmitLimitOrderRoutesToRegisteredOrderBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{100}, vertex::core::UserId{1}, Side::Sell, 5, 100)).empty());
-    const auto executions = engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{101}, vertex::core::UserId{2}, Side::Buy, 5, 110));
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{100}, vertex::core::UserId{1}, Side::Sell, 5, 100)).empty());
+    const auto executions = engine.submit(make_limit_order(btc_usdt(), OrderId{101}, vertex::core::UserId{2}, Side::Buy, 5, 110));
 
     ASSERT_EQ(executions.size(), 1u);
     EXPECT_EQ(executions.front().buy_order_id, OrderId{101});
@@ -77,7 +97,7 @@ TEST(MatchingEngineTest, CancelRoutesToRegisteredOrderBook)
     MatchingEngine engine;
     engine.register_market(btc_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{200}, vertex::core::UserId{7}, Side::Buy, 8, 99)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{200}, vertex::core::UserId{7}, Side::Buy, 8, 99)).empty());
     const auto cancel_result = engine.cancel(btc_usdt(), OrderId{200});
 
     ASSERT_TRUE(cancel_result.has_value());
@@ -101,27 +121,27 @@ TEST(MatchingEngineTest, MarketsAreIsolatedFromEachOther)
     engine.register_market(btc_usdt());
     engine.register_market(eth_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{301}, vertex::core::UserId{11}, Side::Sell, 2, 100)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(eth_usdt(), OrderId{401}, vertex::core::UserId{12}, Side::Buy, 2, 1000)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{301}, vertex::core::UserId{11}, Side::Sell, 2, 100)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(eth_usdt(), OrderId{401}, vertex::core::UserId{12}, Side::Buy, 2, 1000)).empty());
 
-    const auto btc_exec = engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{302}, vertex::core::UserId{13}, Side::Buy, 2, 105));
+    const auto btc_exec = engine.submit(make_limit_order(btc_usdt(), OrderId{302}, vertex::core::UserId{13}, Side::Buy, 2, 105));
     ASSERT_EQ(btc_exec.size(), 1u);
     EXPECT_EQ(btc_exec.front().sell_order_id, OrderId{301});
 
-    const auto eth_exec = engine.add_limit_order(make_limit_order(eth_usdt(), OrderId{402}, vertex::core::UserId{14}, Side::Sell, 1, 995));
+    const auto eth_exec = engine.submit(make_limit_order(eth_usdt(), OrderId{402}, vertex::core::UserId{14}, Side::Sell, 1, 995));
     ASSERT_EQ(eth_exec.size(), 1u);
     EXPECT_EQ(eth_exec.front().buy_order_id, OrderId{401});
 }
 
-TEST(MatchingEngineTest, AddLimitOrderCanProduceMultipleExecutionsThroughOrderBook)
+TEST(MatchingEngineTest, SubmitLimitOrderCanProduceMultipleExecutionsThroughOrderBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{501}, vertex::core::UserId{21}, Side::Sell, 2, 100)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{502}, vertex::core::UserId{22}, Side::Sell, 3, 101)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{501}, vertex::core::UserId{21}, Side::Sell, 2, 100)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{502}, vertex::core::UserId{22}, Side::Sell, 3, 101)).empty());
 
-    const auto executions = engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{503}, vertex::core::UserId{23}, Side::Buy, 5, 101));
+    const auto executions = engine.submit(make_limit_order(btc_usdt(), OrderId{503}, vertex::core::UserId{23}, Side::Buy, 5, 101));
 
     ASSERT_EQ(executions.size(), 2u);
     EXPECT_EQ(executions[0].sell_order_id, OrderId{501});
@@ -131,16 +151,16 @@ TEST(MatchingEngineTest, AddLimitOrderCanProduceMultipleExecutionsThroughOrderBo
     EXPECT_TRUE(executions[1].buy_fully_filled);
 }
 
-TEST(MatchingEngineTest, ExecuteMarketOrderRoutesToRegisteredOrderBook)
+TEST(MatchingEngineTest, SubmitMarketBuyByQuoteRoutesToRegisteredOrderBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{550}, vertex::core::UserId{25}, Side::Sell, 2, 100)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{551}, vertex::core::UserId{26}, Side::Sell, 3, 101)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{550}, vertex::core::UserId{25}, Side::Sell, 2, 100)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{551}, vertex::core::UserId{26}, Side::Sell, 3, 101)).empty());
 
     // BUY market quantity is quote budget here: 2*100 + 2*101 = 402
-    const auto executions = engine.execute_market_order(make_market_order(btc_usdt(), OrderId{552}, vertex::core::UserId{27}, Side::Buy, 402));
+    const auto executions = engine.submit(make_market_buy_order(OrderId{552}, vertex::core::UserId{27}, btc_usdt(), 402));
 
     ASSERT_EQ(executions.size(), 2u);
     EXPECT_EQ(executions[0].buy_order_id, OrderId{552});
@@ -158,34 +178,58 @@ TEST(MatchingEngineTest, ExecuteMarketOrderRoutesToRegisteredOrderBook)
     EXPECT_EQ(*engine.best_ask(btc_usdt()), 101);
 }
 
-TEST(MatchingEngineTest, ExecuteMarketOrderWithoutLiquidityReturnsEmptyAndDoesNotChangeBook)
+TEST(MatchingEngineTest, SubmitMarketBuyByQuoteWithoutLiquidityReturnsEmptyAndDoesNotChangeBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
 
-    const auto executions = engine.execute_market_order(make_market_order(btc_usdt(), OrderId{560}, vertex::core::UserId{28}, Side::Buy, 3));
+    const auto executions = engine.submit(make_market_buy_order(OrderId{560}, vertex::core::UserId{28}, btc_usdt(), 3));
 
     EXPECT_TRUE(executions.empty());
     EXPECT_EQ(engine.best_bid(btc_usdt()), std::nullopt);
     EXPECT_EQ(engine.best_ask(btc_usdt()), std::nullopt);
 }
 
-TEST(MatchingEngineTest, ExecuteMarketOrderIsIsolatedByMarket)
+TEST(MatchingEngineTest, SubmitMarketBuyByQuoteIsIsolatedByMarket)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
     engine.register_market(eth_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{570}, vertex::core::UserId{29}, Side::Sell, 1, 100)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(eth_usdt(), OrderId{571}, vertex::core::UserId{30}, Side::Sell, 2, 1000)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{570}, vertex::core::UserId{29}, Side::Sell, 1, 100)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(eth_usdt(), OrderId{571}, vertex::core::UserId{30}, Side::Sell, 2, 1000)).empty());
 
-    const auto btc_exec = engine.execute_market_order(make_market_order(btc_usdt(), OrderId{572}, vertex::core::UserId{31}, Side::Buy, 100));
+    const auto btc_exec = engine.submit(make_market_buy_order(OrderId{572}, vertex::core::UserId{31}, btc_usdt(), 100));
     ASSERT_EQ(btc_exec.size(), 1u);
     EXPECT_EQ(btc_exec.front().sell_order_id, OrderId{570});
 
     EXPECT_EQ(engine.best_ask(btc_usdt()), std::nullopt);
     ASSERT_TRUE(engine.best_ask(eth_usdt()).has_value());
     EXPECT_EQ(*engine.best_ask(eth_usdt()), 1000);
+}
+
+TEST(MatchingEngineTest, SubmitMarketSellByBaseRoutesToRegisteredOrderBook)
+{
+    MatchingEngine engine;
+    engine.register_market(btc_usdt());
+
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{580}, vertex::core::UserId{35}, Side::Buy, 2, 105)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{581}, vertex::core::UserId{36}, Side::Buy, 2, 104)).empty());
+
+    const auto executions = engine.submit(make_market_sell_order(OrderId{582}, vertex::core::UserId{37}, btc_usdt(), 3));
+
+    ASSERT_EQ(executions.size(), 2u);
+    EXPECT_EQ(executions[0].buy_order_id, OrderId{580});
+    EXPECT_EQ(executions[0].sell_order_id, OrderId{582});
+    EXPECT_EQ(executions[0].quantity, 2);
+    EXPECT_EQ(executions[0].execution_price, 105);
+    EXPECT_TRUE(executions[0].buy_fully_filled);
+
+    EXPECT_EQ(executions[1].buy_order_id, OrderId{581});
+    EXPECT_EQ(executions[1].sell_order_id, OrderId{582});
+    EXPECT_EQ(executions[1].quantity, 1);
+    EXPECT_EQ(executions[1].execution_price, 104);
+    EXPECT_TRUE(executions[1].sell_fully_filled);
 }
 
 TEST(MatchingEngineTest, BestBidAndAskAreEmptyForRegisteredMarketWithoutOrders)
@@ -202,10 +246,10 @@ TEST(MatchingEngineTest, BestBidAndAskReflectOrdersAndUpdateAfterCancel)
     MatchingEngine engine;
     engine.register_market(btc_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{601}, vertex::core::UserId{31}, Side::Buy, 2, 99)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{602}, vertex::core::UserId{32}, Side::Buy, 2, 101)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{603}, vertex::core::UserId{33}, Side::Sell, 2, 105)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{604}, vertex::core::UserId{34}, Side::Sell, 2, 103)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{601}, vertex::core::UserId{31}, Side::Buy, 2, 99)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{602}, vertex::core::UserId{32}, Side::Buy, 2, 101)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{603}, vertex::core::UserId{33}, Side::Sell, 2, 105)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{604}, vertex::core::UserId{34}, Side::Sell, 2, 103)).empty());
 
     ASSERT_TRUE(engine.best_bid(btc_usdt()).has_value());
     ASSERT_TRUE(engine.best_ask(btc_usdt()).has_value());
@@ -227,16 +271,16 @@ TEST(MatchingEngineTest, BestBidAndAskUpdateAfterMatchAndMarketsRemainIsolated)
     engine.register_market(btc_usdt());
     engine.register_market(eth_usdt());
 
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{701}, vertex::core::UserId{41}, Side::Sell, 3, 100)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{702}, vertex::core::UserId{42}, Side::Buy, 2, 98)).empty());
-    EXPECT_TRUE(engine.add_limit_order(make_limit_order(eth_usdt(), OrderId{703}, vertex::core::UserId{43}, Side::Buy, 1, 1000)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{701}, vertex::core::UserId{41}, Side::Sell, 3, 100)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(btc_usdt(), OrderId{702}, vertex::core::UserId{42}, Side::Buy, 2, 98)).empty());
+    EXPECT_TRUE(engine.submit(make_limit_order(eth_usdt(), OrderId{703}, vertex::core::UserId{43}, Side::Buy, 1, 1000)).empty());
 
     EXPECT_EQ(*engine.best_ask(btc_usdt()), 100);
     EXPECT_EQ(*engine.best_bid(btc_usdt()), 98);
     EXPECT_EQ(*engine.best_bid(eth_usdt()), 1000);
     EXPECT_EQ(engine.best_ask(eth_usdt()), std::nullopt);
 
-    const auto executions = engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{704}, vertex::core::UserId{44}, Side::Buy, 3, 100));
+    const auto executions = engine.submit(make_limit_order(btc_usdt(), OrderId{704}, vertex::core::UserId{44}, Side::Buy, 3, 100));
     ASSERT_EQ(executions.size(), 1u);
     EXPECT_EQ(executions.front().quantity, 3);
 
@@ -251,22 +295,22 @@ TEST(MatchingEngineTest, BestBidAndAskUpdateAfterMatchAndMarketsRemainIsolated)
 }
 
 #if !defined(NDEBUG)
-TEST(MatchingEngineDeathTest, AddLimitOrderWithoutRegisteredMarketDies)
+TEST(MatchingEngineDeathTest, SubmitLimitOrderWithoutRegisteredMarketDies)
 {
     ASSERT_DEATH(
         {
             MatchingEngine engine;
-            (void)engine.add_limit_order(make_limit_order(btc_usdt(), OrderId{900}, vertex::core::UserId{1}, Side::Buy, 1, 100));
+            (void)engine.submit(make_limit_order(btc_usdt(), OrderId{900}, vertex::core::UserId{1}, Side::Buy, 1, 100));
         },
         ".*");
 }
 
-TEST(MatchingEngineDeathTest, ExecuteMarketOrderWithoutRegisteredMarketDies)
+TEST(MatchingEngineDeathTest, SubmitMarketBuyByQuoteWithoutRegisteredMarketDies)
 {
     ASSERT_DEATH(
         {
             MatchingEngine engine;
-            (void)engine.execute_market_order(make_market_order(btc_usdt(), OrderId{905}, vertex::core::UserId{1}, Side::Buy, 1));
+            (void)engine.submit(make_market_buy_order(OrderId{905}, vertex::core::UserId{1}, btc_usdt(), 1));
         },
         ".*");
 }

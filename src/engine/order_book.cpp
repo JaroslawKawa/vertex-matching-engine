@@ -9,214 +9,6 @@ namespace vertex::engine
 
     OrderBook::OrderBook(Market market) : market_(market) {}
 
-    std::vector<Execution> OrderBook::add_limit_order(std::unique_ptr<LimitOrder> order)
-    {
-        assert(order != nullptr);
-        assert(order->market() == market_);
-
-        OrderId order_id = order.get()->id();
-        Price price = order.get()->price();
-        Side side = order.get()->side();
-
-        std::vector<Execution> result;
-
-        if (side == Side::Buy)
-        {
-
-            while (order->remaining_quantity() > 0 && !asks_.empty() && asks_.begin()->first <= price)
-            {
-                auto level_it = asks_.begin(); // It for Prices/PriceLvl in asks_map
-
-                auto &level = level_it->second;         // PriceLvl
-                auto resting_it = level.orders.begin(); // it for begin of orders in PriceLvl list
-
-                Order &resting = **resting_it; // Order
-
-                Quantity executed = std::min(order->remaining_quantity(), resting.remaining_quantity());
-
-                resting.reduce(executed);
-                order->reduce(executed);
-
-                result.push_back({order_id, resting.id(), executed, level_it->first, price, order->is_filled(), resting.is_filled()});
-
-                if (resting.is_filled())
-                {
-                    index_.erase(resting.id());
-                    level.orders.erase(resting_it);
-                }
-
-                if (level.orders.empty())
-                {
-                    asks_.erase(level_it);
-                }
-            }
-            if (order.get()->is_active())
-            {
-                auto level_it = bids_.find(price);
-
-                if (level_it == bids_.end())
-                {
-                    auto [it, inserted] = bids_.emplace(price, std::list<std::unique_ptr<Order>>{});
-                    auto &orders = it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
-
-                    index_[order_id] = {side, price, order_it};
-                }
-                else
-                {
-                    auto &orders = level_it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
-                    index_[order_id] = {side, price, order_it};
-                }
-            }
-        }
-        else
-        {
-            while (order->remaining_quantity() > 0 && !bids_.empty() && bids_.begin()->first >= price)
-            {
-
-                auto level_it = bids_.begin(); // It for Prices/PriceLvl in bids list
-
-                auto &level = level_it->second;         // Price Lvl
-                auto resting_it = level.orders.begin(); // It for begin of orders in PriceLvl list
-
-                Order &resting = **resting_it;
-
-                Quantity executed = std::min(order->remaining_quantity(), resting.remaining_quantity());
-
-                resting.reduce(executed);
-                order->reduce(executed);
-
-                result.push_back({resting.id(), order_id, executed, level_it->first, resting.price(), resting.is_filled(), order->is_filled()});
-
-                if (resting.is_filled())
-                {
-                    index_.erase(resting.id());
-                    level.orders.erase(resting_it);
-                }
-
-                if (level.orders.empty())
-                {
-                    bids_.erase(level_it);
-                }
-            }
-
-            if (order.get()->is_active())
-            {
-
-                auto level_it = asks_.find(price);
-
-                if (level_it == asks_.end())
-                {
-
-                    auto [it, inserted] = asks_.emplace(price, std::list<std::unique_ptr<Order>>{});
-                    auto &orders = it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
-
-                    index_[order_id] = {side, price, order_it};
-                }
-                else
-                {
-                    auto &orders = level_it->second.orders;
-                    auto order_it = orders.insert(orders.end(), std::move(order));
-                    index_[order_id] = {side, price, order_it};
-                }
-            }
-        }
-        return result;
-    }
-
-    std::vector<Execution> OrderBook::execute_market_order(std::unique_ptr<MarketOrder> order)
-    {
-        assert(order != nullptr);
-        assert(order->market() == market_);
-
-        OrderId order_id = order->id();
-        Side side = order->side();
-
-        std::vector<Execution> result;
-
-        if (side == Side::Buy)
-        {
-
-            while (order->remaining_quantity() > 0 && !asks_.empty())
-            {
-                auto level_it = asks_.begin();
-                auto &level = level_it->second;
-                auto resting_it = level.orders.begin();
-
-                Order &resting_order = **resting_it;
-                Price price = level_it->first;
-
-                auto remaining_quote = order->remaining_quantity(); // quote budget remaining
-                auto max_base = remaining_quote / price;            // how much base we can buy at this price
-                auto executed_base = std::min(max_base, resting_order.remaining_quantity());
-
-                // intiger math gouard
-                if (executed_base <= 0) 
-                    break;
-
-                resting_order.reduce(executed_base);
-                order->reduce(executed_base * price);
-
-                result.push_back({order_id,
-                                  resting_order.id(),
-                                  executed_base,
-                                  price,
-                                  price,
-                                  order->is_filled(),
-                                  resting_order.is_filled()});
-
-                if (resting_order.is_filled())
-                {
-                    index_.erase(resting_order.id());
-                    level.orders.erase(resting_it);
-                }
-                if (level.orders.empty())
-                {
-                    asks_.erase(level_it);
-                }
-            }
-        }
-        else
-        {
-            while (order->remaining_quantity() > 0 && !bids_.empty())
-            {
-                auto level_it = bids_.begin();
-                auto &level = level_it->second;
-                auto resting_it = level.orders.begin();
-
-                Order &resting_order = **resting_it;
-                Price price = level_it->first;
-                
-                auto executed_quantity = std::min(order->remaining_quantity(), resting_order.remaining_quantity());
-
-                resting_order.reduce(executed_quantity);
-                order->reduce(executed_quantity);
-
-                result.push_back({resting_order.id(),
-                                  order->id(),
-                                  executed_quantity,
-                                  price,
-                                  price,
-                                  resting_order.is_filled(),
-                                  order->is_filled()});
-
-                if (resting_order.is_filled())
-                {
-                    index_.erase(resting_order.id());
-                    level.orders.erase(resting_it);
-                }
-                if (level.orders.empty())
-                {
-                    bids_.erase(level_it);
-                }
-            }
-        }
-
-        return result;
-    }
-
     std::optional<CancelResult> OrderBook::cancel(OrderId order_id)
     {
         assert(order_id.is_valid());
@@ -233,13 +25,13 @@ namespace vertex::engine
         auto order_it = order_location_it->second.it;
 
         result.id = order_id;
-        result.side = order_it->get()->side();
-        result.price = order_it->get()->price();
-        result.remaining_quantity = order_it->get()->remaining_quantity();
+        result.side = order_location_it->second.side;
+        result.price = order_it->limit_price;
+        result.remaining_quantity = order_it->remaining_base_quantity;
 
-        if (order_it->get()->side() == Side::Buy)
+        if (order_location_it->second.side == Side::Buy)
         {
-            auto level_it = bids_.find(order_it->get()->price());
+            auto level_it = bids_.find(order_it->limit_price);
 
             if (level_it != bids_.end())
             {
@@ -252,7 +44,7 @@ namespace vertex::engine
         }
         else
         {
-            auto level_it = asks_.find(order_it->get()->price());
+            auto level_it = asks_.find(order_it->limit_price);
 
             if (level_it != asks_.end())
             {
@@ -284,6 +76,211 @@ namespace vertex::engine
             return std::nullopt;
 
         return asks_.begin()->first;
+    }
+
+    void OrderBook::insert_resting(Side side, RestingOrder &&order)
+    {
+        const Price limit_price = order.limit_price;
+        const OrderId order_id = order.id;
+
+        if (side == Side::Buy)
+        {
+            auto level_it = bids_.find(limit_price);
+
+            if (level_it == bids_.end())
+            {
+                auto [it, inserted] = bids_.try_emplace(limit_price);
+                auto &orders = it->second.orders;
+                auto order_it = orders.insert(orders.end(), std::move(order));
+
+                index_[order_id] = {side, limit_price, order_it};
+            }
+            else
+            {
+                auto &orders = level_it->second.orders;
+                auto order_it = orders.insert(orders.end(), std::move(order));
+                index_[order_id] = {side, limit_price, order_it};
+            }
+        }
+        else
+        {
+            auto level_it = asks_.find(limit_price);
+
+            if (level_it == asks_.end())
+            {
+
+                auto [it, inserted] = asks_.try_emplace(limit_price);
+                auto &orders = it->second.orders;
+                auto order_it = orders.insert(orders.end(), std::move(order));
+
+                index_[order_id] = {side, limit_price, order_it};
+            }
+            else
+            {
+                auto &orders = level_it->second.orders;
+                auto order_it = orders.insert(orders.end(), std::move(order));
+                index_[order_id] = {side, limit_price, order_it};
+            }
+        }
+    }
+
+    std::vector<Execution> OrderBook::match_limit_buy_against_asks(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity)
+    {
+        std::vector<Execution> result;
+
+        while (remaining_base_quantity > 0 && !asks_.empty() && asks_.begin()->first <= limit_price)
+        {
+            auto &level = asks_.begin()->second; 
+            Price price = asks_.begin()->first;
+
+            auto resting_it = level.orders.begin();
+            RestingOrder &resting_order = *resting_it; 
+
+            Quantity executed = std::min(remaining_base_quantity, resting_order.remaining_base_quantity);
+
+            resting_order.reduce(executed);
+            remaining_base_quantity -= executed;
+
+            bool taker_fully_filled = remaining_base_quantity == 0 ? true : false;
+
+            result.push_back({taker_order_id, resting_order.id, executed, price, limit_price, taker_fully_filled, resting_order.is_filled()});
+
+            if (resting_order.is_filled())
+            {
+                index_.erase(resting_order.id);
+                level.orders.erase(resting_it);
+            }
+
+            if (level.orders.empty())
+            {
+                asks_.erase(asks_.begin());
+            }
+        }
+
+        return result;
+    }
+
+    std::vector<Execution> OrderBook::match_limit_sell_against_bids(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity)
+    {
+        std::vector<Execution> result;
+
+        while (remaining_base_quantity > 0 && !bids_.empty() && bids_.begin()->first >= limit_price)
+        {
+            auto &level = bids_.begin()->second;
+            Price price = bids_.begin()->first;
+
+            auto resting_it = level.orders.begin();
+            RestingOrder &resting_order = *resting_it;
+
+            Quantity executed = std::min(remaining_base_quantity, resting_order.remaining_base_quantity);
+
+            resting_order.reduce(executed);
+            remaining_base_quantity -= executed;
+
+            bool taker_fully_filled = remaining_base_quantity == 0 ? true : false;
+
+            result.push_back({resting_order.id, taker_order_id, executed, price, resting_order.limit_price, resting_order.is_filled(), taker_fully_filled});
+
+            if (resting_order.is_filled())
+            {
+                index_.erase(resting_order.id);
+                level.orders.erase(resting_it);
+            }
+
+            if (level.orders.empty())
+            {
+                bids_.erase(bids_.begin());
+            }
+        }
+        return result;
+    }
+
+    std::vector<Execution> OrderBook::match_market_buy_by_quote_against_asks(const OrderId taker_order_id, Quantity remaining_quote_budget)
+    {
+        std::vector<Execution> result;
+
+        while (remaining_quote_budget > 0 && !asks_.empty())
+        {
+            auto level_it = asks_.begin();
+            auto &level = level_it->second;
+            auto resting_it = level.orders.begin();
+
+            RestingOrder &resting_order = *resting_it;
+            Price price = level_it->first;
+
+            auto remaining_quote = remaining_quote_budget; // quote budget remaining
+            auto max_base = remaining_quote / price;       // how much base we can buy at this price
+            auto executed_base = std::min(max_base, resting_order.remaining_base_quantity);
+
+            // math gouard
+            if (executed_base <= 0)
+                break;
+
+            resting_order.reduce(executed_base);
+            remaining_quote_budget -= (executed_base * price);
+
+            bool taker_fully_filled = remaining_quote_budget == 0 ? true : false;
+
+            result.push_back({taker_order_id,
+                              resting_order.id,
+                              executed_base,
+                              price,
+                              price,
+                              taker_fully_filled,
+                              resting_order.is_filled()});
+
+            if (resting_order.is_filled())
+            {
+                index_.erase(resting_order.id);
+                level.orders.erase(resting_it);
+            }
+            if (level.orders.empty())
+            {
+                asks_.erase(level_it);
+            }
+        }
+        return result;
+    }
+
+    std::vector<Execution> OrderBook::match_market_sell_by_base_against_bids(const OrderId taker_order_id, Quantity remaining_base_quantity)
+    {
+        std::vector<Execution> result;
+
+        while (remaining_base_quantity > 0 && !bids_.empty())
+        {
+            auto level_it = bids_.begin();
+            auto &level = level_it->second;
+            auto resting_it = level.orders.begin();
+
+            RestingOrder &resting_order = *resting_it;
+            Price price = level_it->first;
+
+            auto executed_quantity = std::min(remaining_base_quantity, resting_order.remaining_base_quantity);
+
+            resting_order.reduce(executed_quantity);
+            remaining_base_quantity -= executed_quantity;
+
+            bool taker_fully_filled = remaining_base_quantity == 0 ? true : false;
+
+            result.push_back({resting_order.id,
+                              taker_order_id,
+                              executed_quantity,
+                              price,
+                              price,
+                              resting_order.is_filled(),
+                              taker_fully_filled});
+
+            if (resting_order.is_filled())
+            {
+                index_.erase(resting_order.id);
+                level.orders.erase(resting_it);
+            }
+            if (level.orders.empty())
+            {
+                bids_.erase(level_it);
+            }
+        }
+        return result;
     }
 
 }

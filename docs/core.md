@@ -6,12 +6,12 @@ This document reflects the current implementation in `include/vertex/core/*`.
 
 Core layer provides foundational types and utilities:
 
-- Strong typed IDs (`StrongId<Tag>`)
-- Atomic ID generation (`IdGenerator<T>`)
-- Asset and market primitives (`StrongAsset<Tag>`, `Market`)
-- Common aliases (`types.hpp`)
+- strong typed IDs (`StrongId<Tag>`),
+- atomic ID generation (`IdGenerator<T>`),
+- asset and market primitives (`StrongAsset<Tag>`, `Market`),
+- common aliases (`types.hpp`).
 
-Core layer contains no matching logic, no wallet logic, and no application orchestration.
+Core layer contains no matching, wallet, or application orchestration logic.
 
 ## StrongId<Tag>
 
@@ -23,13 +23,13 @@ Current API:
 - `constexpr StrongId(std::uint64_t) noexcept`
 - `constexpr bool is_valid() const noexcept`
 - `constexpr std::uint64_t get_value() const noexcept`
-- defaulted three-way comparison (`operator<=>`)
+- defaulted `operator<=>`
 
 Properties:
 
-- wraps `std::uint64_t`
-- default value `0` means invalid
-- hash specialization exists for unordered containers
+- wraps `std::uint64_t`,
+- `0` is treated as invalid,
+- `std::hash` specialization exists for unordered containers.
 
 ## IdGenerator<T>
 
@@ -37,26 +37,26 @@ Defined in `id_generator.hpp`.
 
 Current behavior:
 
-- template-constrained to `StrongId<Tag>` via trait + `static_assert`
-- internal counter: `std::atomic<std::uint64_t> counter{0}`
-- `next()` returns IDs starting from `1`
-- uses `fetch_add(..., memory_order_relaxed)`
+- constrained to `StrongId<Tag>` by trait + `static_assert`,
+- internal counter: `std::atomic<std::uint64_t> counter{0}`,
+- `next()` returns IDs starting from `1`,
+- uses `fetch_add(..., memory_order_relaxed)`.
 
 ## StrongAsset<Tag> / Asset
 
-Defined in `asset.hpp` and aliased in `types.hpp`.
+Defined in `asset.hpp`, with `Asset` alias in `types.hpp`.
 
 Current API:
 
 - `explicit StrongAsset(std::string name)`
 - `const std::string& value() const noexcept`
-- defaulted three-way comparison
-- hash specialization
+- defaulted `operator<=>`
+- `std::hash` specialization
 
 Behavior:
 
-- input symbol is uppercased in constructor
-- non-empty name enforced by `assert`
+- symbol is normalized to uppercase in constructor,
+- non-empty input is required (`assert`).
 
 ## Market
 
@@ -67,24 +67,23 @@ Current model:
 - `Market(Asset base, Asset quote)`
 - `const Asset& base() const noexcept`
 - `const Asset& quote() const noexcept`
-- defaulted three-way comparison
-- hash specialization
+- defaulted `operator<=>`
+- `std::hash` specialization
 
 Invariant:
 
-- `base != quote` (enforced by `assert`)
+- `base != quote` (`assert`).
 
 ## Common Types (`types.hpp`)
 
-Currently defined aliases:
+Current aliases and enums:
 
-- `UserId`, `OrderId`, `TradeId`
-- `Asset`
-- `Price` (`std::int64_t`)
-- `Quantity` (`std::int64_t`)
-- `Side` (`Buy`, `Sell`)
+- IDs: `UserId`, `OrderId`, `TradeId`
+- value objects: `Asset`, `Market`
+- numeric aliases: `Price` (`std::int64_t`), `Quantity` (`std::int64_t`)
+- side enum: `Side::{Buy, Sell}`
 
-Notes:
+Note:
 
-- `Market` type comes from `market.hpp`
-- `AssetTag` exists in both `types.hpp` and `market.hpp` include graph; functionality works, but this is a detail worth keeping consistent during refactors.
+- canonical `AssetTag` definition is in `types.hpp`.
+- `market.hpp` only forward declares `AssetTag` to reuse the same asset strong type.
