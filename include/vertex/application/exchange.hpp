@@ -7,9 +7,6 @@
 #include "vertex/application/trade_history.hpp"
 #include "vertex/core/id_generator.hpp"
 #include "vertex/core/types.hpp"
-#include "vertex/domain/order.hpp"
-#include "vertex/domain/market_order.hpp"
-#include "vertex/domain/limit_order.hpp"
 #include "vertex/domain/trade.hpp"
 #include "vertex/domain/user.hpp"
 #include "vertex/domain/wallet.hpp"
@@ -22,9 +19,6 @@ namespace vertex::application
     using UserIdGenerator = vertex::core::IdGenerator<UserId>;
     using User = vertex::domain::User;
     using OrderId = vertex::core::OrderId;
-    using Order = vertex::domain::Order;
-    using LimitOrder = vertex::domain::LimitOrder;
-    using MarketOrder = vertex::domain::MarketOrder;
     using OrderIdGenerator = vertex::core::IdGenerator<OrderId>;
     using TradeId = vertex::core::TradeId;
     using TradeIdGenerator = vertex::core::IdGenerator<TradeId>;

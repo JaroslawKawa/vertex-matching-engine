@@ -7,9 +7,6 @@
 #include <unordered_map>
 #include <vector>
 #include "vertex/core/types.hpp"
-#include "vertex/domain/order.hpp"
-#include "vertex/domain/limit_order.hpp"
-#include "vertex/domain/market_order.hpp"
 #include "vertex/engine/resting_order.hpp"
 
 namespace vertex::engine
@@ -19,8 +16,6 @@ namespace vertex::engine
     using Side = vertex::core::Side;
     using Price = vertex::core::Price;
     using OrderId = vertex::core::OrderId;
-    using LimitOrder = vertex::domain::LimitOrder;
-    using MarketOrder = vertex::domain::MarketOrder;
 
     struct OrderLocation
     {

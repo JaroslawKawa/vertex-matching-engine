@@ -22,9 +22,6 @@ add_library(vertex_engine STATIC
     src/application/trade_history.cpp
     src/domain/user.cpp
     src/domain/wallet.cpp
-    src/domain/order.cpp
-    src/domain/market_order.cpp
-    src/domain/limit_order.cpp
     src/domain/trade.cpp
     src/engine/order_book.cpp
     src/engine/matching_engine.cpp
