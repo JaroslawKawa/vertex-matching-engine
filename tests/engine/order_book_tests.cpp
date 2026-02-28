@@ -3,7 +3,6 @@
 #include <memory>
 
 #include "vertex/domain/limit_order.hpp"
-#include "vertex/domain/market_order.hpp"
 #include "vertex/engine/order_book.hpp"
 
 namespace
@@ -11,9 +10,9 @@ namespace
     using vertex::core::Asset;
     using vertex::core::Market;
     using vertex::core::OrderId;
+    using vertex::core::Quantity;
     using vertex::core::Side;
     using vertex::domain::LimitOrder;
-    using vertex::domain::MarketOrder;
     using vertex::engine::Execution;
     using vertex::engine::OrderBook;
     using vertex::engine::RestingOrder;
@@ -31,15 +30,6 @@ namespace
         vertex::core::Price price)
     {
         return std::make_unique<LimitOrder>(order_id, user_id, btc_usdt(), side, quantity, price);
-    }
-
-    std::unique_ptr<MarketOrder> make_market_order(
-        OrderId order_id,
-        vertex::core::UserId user_id,
-        Side side,
-        vertex::core::Quantity quantity)
-    {
-        return std::make_unique<MarketOrder>(order_id, user_id, btc_usdt(), side, quantity);
     }
 
     std::vector<Execution> submit_limit_order(OrderBook &book, std::unique_ptr<LimitOrder> order)
@@ -61,6 +51,16 @@ namespace
         }
 
         return executions;
+    }
+
+    std::vector<Execution> submit_market_buy_by_quote(OrderBook &book, OrderId order_id, Quantity quote_budget)
+    {
+        return book.match_market_buy_by_quote_against_asks(order_id, quote_budget);
+    }
+
+    std::vector<Execution> submit_market_sell_by_base(OrderBook &book, OrderId order_id, Quantity base_quantity)
+    {
+        return book.match_market_sell_by_base_against_bids(order_id, base_quantity);
     }
 }
 
@@ -260,7 +260,7 @@ TEST(OrderBookTest, ExecuteMarketBuyWithoutLiquidityReturnsNoExecutionsAndDoesNo
 {
     OrderBook book{btc_usdt()};
 
-    const auto executions = book.execute_market_order(make_market_order(OrderId{90}, vertex::core::UserId{110}, Side::Buy, 5));
+    const auto executions = submit_market_buy_by_quote(book, OrderId{90}, 5);
 
     EXPECT_TRUE(executions.empty());
     EXPECT_FALSE(book.best_bid().has_value());
@@ -275,7 +275,7 @@ TEST(OrderBookTest, ExecuteMarketBuyQuoteBudgetSweepsAsksAndLeavesOnlyRestingRem
     EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{92}, vertex::core::UserId{112}, Side::Sell, 3, 101)).empty());
 
     // BUY market quantity is quote budget here: 2*100 + 2*101 = 402
-    const auto executions = book.execute_market_order(make_market_order(OrderId{93}, vertex::core::UserId{113}, Side::Buy, 402));
+    const auto executions = submit_market_buy_by_quote(book, OrderId{93}, 402);
 
     ASSERT_EQ(executions.size(), 2u);
     EXPECT_EQ(executions[0].buy_order_id, OrderId{93});
@@ -309,7 +309,7 @@ TEST(OrderBookTest, ExecuteMarketSellConsumesBidsAndUnfilledRemainderIsDropped)
     EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{94}, vertex::core::UserId{114}, Side::Buy, 2, 105)).empty());
     EXPECT_TRUE(submit_limit_order(book, make_limit_order(OrderId{95}, vertex::core::UserId{115}, Side::Buy, 1, 104)).empty());
 
-    const auto executions = book.execute_market_order(make_market_order(OrderId{96}, vertex::core::UserId{116}, Side::Sell, 5));
+    const auto executions = submit_market_sell_by_base(book, OrderId{96}, 5);
 
     ASSERT_EQ(executions.size(), 2u);
     EXPECT_EQ(executions[0].buy_order_id, OrderId{94});
