@@ -12,7 +12,7 @@ namespace vertex::engine
 
     struct RestingOrder
     {
-        OrderId order_id;
+        OrderId id;
         Price limit_price;
         Quantity initial_base_quantity;
         Quantity remaining_base_quantity;

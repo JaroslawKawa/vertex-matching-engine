@@ -13,7 +13,7 @@ namespace vertex::engine
 
     struct LimitOrderRequest
     {
-        OrderId order_id;
+        OrderId id;
         UserId user_id;
         Market market;
         Side side;
@@ -23,14 +23,14 @@ namespace vertex::engine
 
     struct MarketBuyByQuoteRequest
     {
-        OrderId order_id;
+        OrderId id;
         UserId user_id;
         Market market;
         Quantity quote_budget;
     };
     struct MarketSellByBaseRequest
     {
-        OrderId order_id;
+        OrderId id;
         UserId user_id;
         Market market;
         Quantity base_quantity;

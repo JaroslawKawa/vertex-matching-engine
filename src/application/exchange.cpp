@@ -219,17 +219,17 @@ namespace vertex::application
             return std::unexpected(PlaceOrderError::InsufficientFunds);
 
         LimitOrderRequest limit_order_request{
-            .order_id = order_id_generator_.next(),
+            .id = order_id_generator_.next(),
             .user_id = user_id,
             .market = market,
             .side = side,
             .limit_price = price,
             .base_quantity = quantity};
 
-        orders_[limit_order_request.order_id] = user_id;
-        orders_market_.insert_or_assign(limit_order_request.order_id, market);
+        orders_[limit_order_request.id] = user_id;
+        orders_market_.insert_or_assign(limit_order_request.id, market);
 
-        order_result.order_id = limit_order_request.order_id;
+        order_result.order_id = limit_order_request.id;
         order_result.remaining_quantity = quantity;
         order_result.filled_quantity = 0;
 
@@ -336,14 +336,14 @@ namespace vertex::application
         OrderPlacementResult order_result;
 
         MarketBuyByQuoteRequest order_request{
-            .order_id = order_id_generator_.next(),
+            .id = order_id_generator_.next(),
             .user_id = user_id,
             .market = market,
             .quote_budget = order_quantity
 
         };
 
-        order_result.order_id = order_request.order_id;
+        order_result.order_id = order_request.id;
         order_result.remaining_quantity = order_quantity;
         order_result.filled_quantity = 0;
         std::vector<Execution> execution_result = matching_engine_.submit(std::move(order_request));
@@ -393,14 +393,14 @@ namespace vertex::application
         OrderPlacementResult order_result;
 
         MarketSellByBaseRequest order_request{
-            .order_id = order_id_generator_.next(),
+            .id = order_id_generator_.next(),
             .user_id = user_id,
             .market = market,
             .base_quantity = order_quantity
 
         };
 
-        order_result.order_id = order_request.order_id;
+        order_result.order_id = order_request.id;
         order_result.remaining_quantity = order_quantity;
         order_result.filled_quantity = 0;
         std::vector<Execution> execution_result = matching_engine_.submit(std::move(order_request));

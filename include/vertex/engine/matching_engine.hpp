@@ -19,8 +19,8 @@ namespace vertex::engine
 
 
         std::vector<Execution> handle_limit_request(const LimitOrderRequest& req);
-        std::vector<Execution> execute_market_buy_by_quote(const MarketBuyByQuoteRequest& req);
-        std::vector<Execution> execute_market_sell_by_base(const MarketSellByBaseRequest& req);
+        std::vector<Execution> handle_market_buy_by_quote(const MarketBuyByQuoteRequest& req);
+        std::vector<Execution> handle_market_sell_by_base(const MarketSellByBaseRequest& req);
     public:
         MatchingEngine() noexcept = default;
         void register_market(const Market &market);

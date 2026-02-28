@@ -81,7 +81,7 @@ namespace vertex::engine
     void OrderBook::insert_resting(Side side, RestingOrder &&order)
     {
         const Price limit_price = order.limit_price;
-        const OrderId order_id = order.order_id;
+        const OrderId order_id = order.id;
 
         if (side == Side::Buy)
         {
@@ -130,24 +130,24 @@ namespace vertex::engine
 
         while (remaining_base_quantity > 0 && !asks_.empty() && asks_.begin()->first <= limit_price)
         {
-            auto &level = asks_.begin()->second; // PriceLvl
+            auto &level = asks_.begin()->second; 
             Price price = asks_.begin()->first;
 
-            auto resting_it = level.orders.begin(); // it for begin of orders in PriceLvl list
-            RestingOrder &resting = *resting_it;    // Order
+            auto resting_it = level.orders.begin();
+            RestingOrder &resting_order = *resting_it; 
 
-            Quantity executed = std::min(remaining_base_quantity, resting.remaining_base_quantity);
+            Quantity executed = std::min(remaining_base_quantity, resting_order.remaining_base_quantity);
 
-            resting.reduce(executed);
+            resting_order.reduce(executed);
             remaining_base_quantity -= executed;
 
-            bool order_filled = remaining_base_quantity == 0 ? true : false;
+            bool taker_fully_filled = remaining_base_quantity == 0 ? true : false;
 
-            result.push_back({taker_order_id, resting.order_id, executed, price, limit_price, order_filled, resting.is_filled()});
+            result.push_back({taker_order_id, resting_order.id, executed, price, limit_price, taker_fully_filled, resting_order.is_filled()});
 
-            if (resting.is_filled())
+            if (resting_order.is_filled())
             {
-                index_.erase(resting.order_id);
+                index_.erase(resting_order.id);
                 level.orders.erase(resting_it);
             }
 
@@ -166,24 +166,24 @@ namespace vertex::engine
 
         while (remaining_base_quantity > 0 && !bids_.empty() && bids_.begin()->first >= limit_price)
         {
-            auto &level = bids_.begin()->second; // Price Lvl
+            auto &level = bids_.begin()->second;
             Price price = bids_.begin()->first;
 
-            auto resting_it = level.orders.begin(); // It for begin of orders in PriceLvl list
-            RestingOrder &resting = *resting_it;
+            auto resting_it = level.orders.begin();
+            RestingOrder &resting_order = *resting_it;
 
-            Quantity executed = std::min(remaining_base_quantity, resting.remaining_base_quantity);
+            Quantity executed = std::min(remaining_base_quantity, resting_order.remaining_base_quantity);
 
-            resting.reduce(executed);
+            resting_order.reduce(executed);
             remaining_base_quantity -= executed;
 
-            bool order_filled = remaining_base_quantity == 0 ? true : false;
+            bool taker_fully_filled = remaining_base_quantity == 0 ? true : false;
 
-            result.push_back({resting.order_id, taker_order_id, executed, price, resting.limit_price, resting.is_filled(), order_filled});
+            result.push_back({resting_order.id, taker_order_id, executed, price, resting_order.limit_price, resting_order.is_filled(), taker_fully_filled});
 
-            if (resting.is_filled())
+            if (resting_order.is_filled())
             {
-                index_.erase(resting.order_id);
+                index_.erase(resting_order.id);
                 level.orders.erase(resting_it);
             }
 
@@ -212,26 +212,26 @@ namespace vertex::engine
             auto max_base = remaining_quote / price;       // how much base we can buy at this price
             auto executed_base = std::min(max_base, resting_order.remaining_base_quantity);
 
-            // intiger math gouard
+            // math gouard
             if (executed_base <= 0)
                 break;
 
             resting_order.reduce(executed_base);
             remaining_quote_budget -= (executed_base * price);
 
-            bool order_filled = remaining_quote_budget == 0 ? true : false;
+            bool taker_fully_filled = remaining_quote_budget == 0 ? true : false;
 
             result.push_back({taker_order_id,
-                              resting_order.order_id,
+                              resting_order.id,
                               executed_base,
                               price,
                               price,
-                              order_filled,
+                              taker_fully_filled,
                               resting_order.is_filled()});
 
             if (resting_order.is_filled())
             {
-                index_.erase(resting_order.order_id);
+                index_.erase(resting_order.id);
                 level.orders.erase(resting_it);
             }
             if (level.orders.empty())
@@ -260,19 +260,19 @@ namespace vertex::engine
             resting_order.reduce(executed_quantity);
             remaining_base_quantity -= executed_quantity;
 
-            bool order_filled = remaining_base_quantity == 0 ? true : false;
+            bool taker_fully_filled = remaining_base_quantity == 0 ? true : false;
 
-            result.push_back({resting_order.order_id,
+            result.push_back({resting_order.id,
                               taker_order_id,
                               executed_quantity,
                               price,
                               price,
                               resting_order.is_filled(),
-                              order_filled});
+                              taker_fully_filled});
 
             if (resting_order.is_filled())
             {
-                index_.erase(resting_order.order_id);
+                index_.erase(resting_order.id);
                 level.orders.erase(resting_it);
             }
             if (level.orders.empty())

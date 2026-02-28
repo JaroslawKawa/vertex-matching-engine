@@ -60,11 +60,11 @@ namespace vertex::engine
                 },
                 [this](const MarketBuyByQuoteRequest &req) -> std::vector<Execution>
                 {
-                    return execute_market_buy_by_quote(req);
+                    return handle_market_buy_by_quote(req);
                 },
                 [this](const MarketSellByBaseRequest &req) -> std::vector<Execution>
                 {
-                    return execute_market_sell_by_base(req);
+                    return handle_market_sell_by_base(req);
                 }},
             order_request);
     }
@@ -77,13 +77,13 @@ namespace vertex::engine
         Quantity remaining = req.base_quantity;
 
         std::vector<Execution> executions = req.side == Side::Buy
-                                                ? book.match_limit_buy_against_asks(req.order_id, req.limit_price, remaining)
-                                                : book.match_limit_sell_against_bids(req.order_id, req.limit_price, remaining);
+                                                ? book.match_limit_buy_against_asks(req.id, req.limit_price, remaining)
+                                                : book.match_limit_sell_against_bids(req.id, req.limit_price, remaining);
 
         if (remaining > 0)
         {
             RestingOrder ro{
-                .order_id = req.order_id,
+                .id = req.id,
                 .limit_price = req.limit_price,
                 .initial_base_quantity = req.base_quantity,
                 .remaining_base_quantity = remaining};
@@ -92,22 +92,22 @@ namespace vertex::engine
         return executions;
     }
 
-    std::vector<Execution> MatchingEngine::execute_market_buy_by_quote(const MarketBuyByQuoteRequest &req)
+    std::vector<Execution> MatchingEngine::handle_market_buy_by_quote(const MarketBuyByQuoteRequest &req)
     {
         assert(has_market(req.market));
 
         auto &book = books_.find(req.market)->second;
 
-        return book.match_market_buy_by_quote_against_asks(req.order_id, req.quote_budget);
+        return book.match_market_buy_by_quote_against_asks(req.id, req.quote_budget);
     }
 
-    std::vector<Execution> MatchingEngine::execute_market_sell_by_base(const MarketSellByBaseRequest &req)
+    std::vector<Execution> MatchingEngine::handle_market_sell_by_base(const MarketSellByBaseRequest &req)
     {
         assert(has_market(req.market));
 
         auto &book = books_.find(req.market)->second;
 
-        return book.match_market_sell_by_base_against_bids(req.order_id, req.base_quantity);
+        return book.match_market_sell_by_base_against_bids(req.id, req.base_quantity);
     }
 
 }
