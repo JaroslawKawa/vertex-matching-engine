@@ -17,12 +17,14 @@ namespace vertex::engine
     private:
         std::unordered_map<Market, OrderBook> books_{};
 
+
+        std::vector<Execution> handle_limit_request(const LimitOrderRequest& req);
+
     public:
         MatchingEngine() noexcept = default;
         void register_market(const Market &market);
         bool has_market(const Market &market) const noexcept;
 
-        std::vector<Execution> add_limit_order(std::unique_ptr<LimitOrder> order);
         std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order);
         std::optional<CancelResult> cancel(const Market &market, OrderId order_id);
         std::optional<Price> best_ask(const Market &market) const;

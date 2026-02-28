@@ -24,17 +24,6 @@ namespace vertex::engine
         return (books_.find(market) != books_.end());
     }
 
-    std::vector<Execution> MatchingEngine::add_limit_order(std::unique_ptr<LimitOrder> order)
-    {
-        assert(order != nullptr);
-
-        const Market &market = order.get()->market();
-
-        auto order_book_it = books_.find(market);
-        assert(order_book_it != books_.end());
-        return order_book_it->second.add_limit_order(std::move(order));
-    }
-
     std::vector<Execution> MatchingEngine::execute_market_order(std::unique_ptr<MarketOrder> order)
     {
         assert(order != nullptr);
@@ -77,9 +66,7 @@ namespace vertex::engine
             Overloaded{
                 [this](const LimitOrderRequest &req) -> std::vector<Execution>
                 {
-                    auto order = std::make_unique<LimitOrder>(
-                        req.order_id, req.user_id, req.market, req.side, req.base_quantity, req.limit_price);
-                    return add_limit_order(std::move(order));
+                    return handle_limit_request(req);
                 },
                 [this](const MarketBuyByQuoteRequest &req) -> std::vector<Execution>
                 {
@@ -94,6 +81,29 @@ namespace vertex::engine
                     return execute_market_order(std::move(order));
                 }},
             order_request);
+    }
+
+    std::vector<Execution> MatchingEngine::handle_limit_request(const LimitOrderRequest &req)
+    {
+        assert(has_market(req.market));
+        
+        auto &book = books_.find(req.market)->second;
+        Quantity remaining = req.base_quantity;
+
+        std::vector<Execution> executions = req.side == Side::Buy
+                                                ? book.match_limit_buy_against_asks(req.order_id, req.limit_price, remaining)
+                                                : book.match_limit_sell_against_bids(req.order_id, req.limit_price, remaining);
+
+        if (remaining > 0)
+        {
+            RestingOrder ro{
+                .order_id = req.order_id,
+                .limit_price = req.limit_price,
+                .initial_base_quantity = req.base_quantity,
+                .remaining_base_quantity = remaining};
+            book.insert_resting(req.side, std::move(ro));
+        }
+        return executions;
     }
 
 }
