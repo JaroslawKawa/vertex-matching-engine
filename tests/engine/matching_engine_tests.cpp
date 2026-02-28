@@ -30,7 +30,7 @@ namespace
         vertex::core::Price price)
     {
         return vertex::engine::LimitOrderRequest{
-            .order_id = order_id,
+            .id = order_id,
             .user_id = user_id,
             .market = market,
             .side = side,
@@ -46,7 +46,7 @@ namespace
         vertex::core::Quantity quote_budget)
     {
         return vertex::engine::MarketBuyByQuoteRequest{
-            .order_id = order_id,
+            .id = order_id,
             .user_id = user_id,
             .market = market,
             .quote_budget = quote_budget,
@@ -60,7 +60,7 @@ namespace
         vertex::core::Quantity base_quantity)
     {
         return vertex::engine::MarketSellByBaseRequest{
-            .order_id = order_id,
+            .id = order_id,
             .user_id = user_id,
             .market = market,
             .base_quantity = base_quantity,
@@ -77,7 +77,7 @@ TEST(MatchingEngineTest, RegisterMarketUpdatesPresence)
     EXPECT_TRUE(engine.has_market(btc_usdt()));
 }
 
-TEST(MatchingEngineTest, AddLimitOrderRoutesToRegisteredOrderBook)
+TEST(MatchingEngineTest, SubmitLimitOrderRoutesToRegisteredOrderBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
@@ -133,7 +133,7 @@ TEST(MatchingEngineTest, MarketsAreIsolatedFromEachOther)
     EXPECT_EQ(eth_exec.front().buy_order_id, OrderId{401});
 }
 
-TEST(MatchingEngineTest, AddLimitOrderCanProduceMultipleExecutionsThroughOrderBook)
+TEST(MatchingEngineTest, SubmitLimitOrderCanProduceMultipleExecutionsThroughOrderBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
@@ -151,7 +151,7 @@ TEST(MatchingEngineTest, AddLimitOrderCanProduceMultipleExecutionsThroughOrderBo
     EXPECT_TRUE(executions[1].buy_fully_filled);
 }
 
-TEST(MatchingEngineTest, ExecuteMarketOrderRoutesToRegisteredOrderBook)
+TEST(MatchingEngineTest, SubmitMarketBuyByQuoteRoutesToRegisteredOrderBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
@@ -178,7 +178,7 @@ TEST(MatchingEngineTest, ExecuteMarketOrderRoutesToRegisteredOrderBook)
     EXPECT_EQ(*engine.best_ask(btc_usdt()), 101);
 }
 
-TEST(MatchingEngineTest, ExecuteMarketOrderWithoutLiquidityReturnsEmptyAndDoesNotChangeBook)
+TEST(MatchingEngineTest, SubmitMarketBuyByQuoteWithoutLiquidityReturnsEmptyAndDoesNotChangeBook)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
@@ -190,7 +190,7 @@ TEST(MatchingEngineTest, ExecuteMarketOrderWithoutLiquidityReturnsEmptyAndDoesNo
     EXPECT_EQ(engine.best_ask(btc_usdt()), std::nullopt);
 }
 
-TEST(MatchingEngineTest, ExecuteMarketOrderIsIsolatedByMarket)
+TEST(MatchingEngineTest, SubmitMarketBuyByQuoteIsIsolatedByMarket)
 {
     MatchingEngine engine;
     engine.register_market(btc_usdt());
@@ -295,7 +295,7 @@ TEST(MatchingEngineTest, BestBidAndAskUpdateAfterMatchAndMarketsRemainIsolated)
 }
 
 #if !defined(NDEBUG)
-TEST(MatchingEngineDeathTest, AddLimitOrderWithoutRegisteredMarketDies)
+TEST(MatchingEngineDeathTest, SubmitLimitOrderWithoutRegisteredMarketDies)
 {
     ASSERT_DEATH(
         {
@@ -305,7 +305,7 @@ TEST(MatchingEngineDeathTest, AddLimitOrderWithoutRegisteredMarketDies)
         ".*");
 }
 
-TEST(MatchingEngineDeathTest, ExecuteMarketOrderWithoutRegisteredMarketDies)
+TEST(MatchingEngineDeathTest, SubmitMarketBuyByQuoteWithoutRegisteredMarketDies)
 {
     ASSERT_DEATH(
         {

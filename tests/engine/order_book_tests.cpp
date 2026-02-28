@@ -31,7 +31,7 @@ namespace
         if (remaining > 0)
         {
             RestingOrder resting{
-                .order_id = order_id,
+                .id = order_id,
                 .limit_price = price,
                 .initial_base_quantity = quantity,
                 .remaining_base_quantity = remaining,
