@@ -69,6 +69,8 @@ namespace vertex::engine
         void insert_resting(Side side, RestingOrder &&order);
         std::vector<Execution> match_limit_buy_against_asks(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
         std::vector<Execution> match_limit_sell_against_bids(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
+        std::vector<Execution> match_market_buy_by_quote_against_asks(const OrderId taker_order_id, Quantity remaining_quote_budget);
+        std::vector<Execution> match_market_sell_by_base_against_bids(const OrderId taker_order_id, Quantity remaining_base_quantity);
     };
 
 }

@@ -286,4 +286,92 @@ namespace vertex::engine
         return result;
     }
 
+    std::vector<Execution> OrderBook::match_market_buy_by_quote_against_asks(const OrderId taker_order_id, Quantity remaining_quote_budget)
+    {
+        std::vector<Execution> result;
+
+        while (remaining_quote_budget > 0 && !asks_.empty())
+        {
+            auto level_it = asks_.begin();
+            auto &level = level_it->second;
+            auto resting_it = level.orders.begin();
+
+            RestingOrder &resting_order = *resting_it;
+            Price price = level_it->first;
+
+            auto remaining_quote = remaining_quote_budget; // quote budget remaining
+            auto max_base = remaining_quote / price;       // how much base we can buy at this price
+            auto executed_base = std::min(max_base, resting_order.remaining_base_quantity);
+
+            // intiger math gouard
+            if (executed_base <= 0)
+                break;
+
+            resting_order.reduce(executed_base);
+            remaining_quote_budget -= (executed_base * price);
+
+            bool order_filled = remaining_quote_budget == 0 ? true : false;
+
+            result.push_back({taker_order_id,
+                              resting_order.order_id,
+                              executed_base,
+                              price,
+                              price,
+                              order_filled,
+                              resting_order.is_filled()});
+
+            if (resting_order.is_filled())
+            {
+                index_.erase(resting_order.order_id);
+                level.orders.erase(resting_it);
+            }
+            if (level.orders.empty())
+            {
+                asks_.erase(level_it);
+            }
+        }
+        return result;
+    }
+
+    std::vector<Execution> OrderBook::match_market_sell_by_base_against_bids(const OrderId taker_order_id, Quantity remaining_base_quantity)
+    {
+        std::vector<Execution> result;
+
+        while (remaining_base_quantity > 0 && !bids_.empty())
+        {
+            auto level_it = bids_.begin();
+            auto &level = level_it->second;
+            auto resting_it = level.orders.begin();
+
+            RestingOrder &resting_order = *resting_it;
+            Price price = level_it->first;
+
+            auto executed_quantity = std::min(remaining_base_quantity, resting_order.remaining_base_quantity);
+
+            resting_order.reduce(executed_quantity);
+            remaining_base_quantity -= executed_quantity;
+
+            bool order_filled = remaining_base_quantity == 0 ? true : false;
+
+            result.push_back({resting_order.order_id,
+                              taker_order_id,
+                              executed_quantity,
+                              price,
+                              price,
+                              resting_order.is_filled(),
+                              order_filled});
+
+            if (resting_order.is_filled())
+            {
+                index_.erase(resting_order.order_id);
+                level.orders.erase(resting_it);
+            }
+            if (level.orders.empty())
+            {
+                bids_.erase(level_it);
+            }
+        }
+        return result;
+    }
+
 }
