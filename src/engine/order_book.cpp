@@ -171,44 +171,46 @@ namespace vertex::engine
 
     void OrderBook::insert_resting(Side side, RestingOrder &&order)
     {
+        const Price limit_price = order.limit_price;
+        const OrderId order_id = order.order_id;
 
         if (side == Side::Buy)
         {
-            auto level_it = bids_.find(order.limit_price);
+            auto level_it = bids_.find(limit_price);
 
             if (level_it == bids_.end())
             {
-                auto [it, inserted] = bids_.try_emplace(order.limit_price);
+                auto [it, inserted] = bids_.try_emplace(limit_price);
                 auto &orders = it->second.orders;
                 auto order_it = orders.insert(orders.end(), std::move(order));
 
-                index_[order.order_id] = {side, order.limit_price, order_it};
+                index_[order_id] = {side, limit_price, order_it};
             }
             else
             {
                 auto &orders = level_it->second.orders;
                 auto order_it = orders.insert(orders.end(), std::move(order));
-                index_[order.order_id] = {side, order.limit_price, order_it};
+                index_[order_id] = {side, limit_price, order_it};
             }
         }
         else
         {
-            auto level_it = asks_.find(order.limit_price);
+            auto level_it = asks_.find(limit_price);
 
             if (level_it == asks_.end())
             {
 
-                auto [it, inserted] = asks_.try_emplace(order.limit_price);
+                auto [it, inserted] = asks_.try_emplace(limit_price);
                 auto &orders = it->second.orders;
                 auto order_it = orders.insert(orders.end(), std::move(order));
 
-                index_[order.order_id] = {side, order.limit_price, order_it};
+                index_[order_id] = {side, limit_price, order_it};
             }
             else
             {
                 auto &orders = level_it->second.orders;
                 auto order_it = orders.insert(orders.end(), std::move(order));
-                index_[order.order_id] = {side, order.limit_price, order_it};
+                index_[order_id] = {side, limit_price, order_it};
             }
         }
     }
