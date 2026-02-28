@@ -61,7 +61,6 @@ namespace vertex::engine
 
     public:
         explicit OrderBook(Market market);
-        std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order);
         std::optional<CancelResult> cancel(OrderId order_id);
         std::optional<Price> best_bid() const;
         std::optional<Price> best_ask() const;
