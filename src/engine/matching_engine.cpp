@@ -60,7 +60,7 @@ namespace vertex::engine
         return order_book_it->second.best_bid();
     }
 
-    std::vector<Execution> MatchingEngine::submit(const OrderRequest &order_request)
+    std::vector<Execution> MatchingEngine::submit(OrderRequest &&order_request)
     {
         return std::visit(
             Overloaded{

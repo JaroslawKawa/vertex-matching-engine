@@ -30,7 +30,7 @@ namespace vertex::engine
         std::optional<Price> best_ask(const Market &market) const;
         std::optional<Price> best_bid(const Market &market) const;
 
-        std::vector<Execution> submit(const OrderRequest& order_request);
+        std::vector<Execution> submit(OrderRequest&& order_request);
     };
 
 }
