@@ -233,7 +233,7 @@ namespace vertex::application
         order_result.remaining_quantity = quantity;
         order_result.filled_quantity = 0;
 
-        std::vector<Execution> matching_result = matching_engine_.submit(limit_order_request);
+        std::vector<Execution> matching_result = matching_engine_.submit(std::move(limit_order_request));
 
         if (!matching_result.empty())
         {
@@ -292,6 +292,44 @@ namespace vertex::application
         return order_result;
     }
 
+    std::expected<OrderPlacementResult, PlaceOrderError> Exchange::execute_market_order(const UserId user_id, const Market &market, const Side side, const Quantity order_quantity)
+    {
+        if (!user_id.is_valid())
+            return std::unexpected(PlaceOrderError::UserNotFound);
+
+        if (!matching_engine_.has_market(market))
+            return std::unexpected(PlaceOrderError::MarketNotListed);
+
+        if (order_quantity <= 0)
+            return std::unexpected(PlaceOrderError::InvalidQuantity);
+
+        auto user_it = wallets_.find(user_id);
+
+        if (user_it == wallets_.end())
+            return std::unexpected(PlaceOrderError::UserNotFound);
+
+        Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
+
+        Wallet &user_wallet = user_it->second;
+        auto reserve_result = user_wallet.reserve(asset_to_reserve, order_quantity);
+
+        if (!reserve_result)
+            return std::unexpected(PlaceOrderError::InsufficientFunds);
+
+        OrderPlacementResult order_result;
+
+        if (Side::Buy == side)
+        {
+            order_result = execute_market_buy_by_quote(user_id, market, order_quantity);
+        }
+        else
+        {
+            order_result = execute_market_sell_by_base(user_id, market, order_quantity);
+        }
+
+        return order_result;
+    }
+
     OrderPlacementResult Exchange::execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity)
     {
 
@@ -308,7 +346,7 @@ namespace vertex::application
         order_result.order_id = order_request.order_id;
         order_result.remaining_quantity = order_quantity;
         order_result.filled_quantity = 0;
-        std::vector<Execution> execution_result = matching_engine_.submit(order_request);
+        std::vector<Execution> execution_result = matching_engine_.submit(std::move(order_request));
 
         Wallet &buyer_wallet = wallets_.find(user_id)->second;
 
@@ -365,7 +403,7 @@ namespace vertex::application
         order_result.order_id = order_request.order_id;
         order_result.remaining_quantity = order_quantity;
         order_result.filled_quantity = 0;
-        std::vector<Execution> execution_result = matching_engine_.submit(order_request);
+        std::vector<Execution> execution_result = matching_engine_.submit(std::move(order_request));
 
         Wallet &seller_wallet = wallets_.find(user_id)->second;
 
@@ -403,45 +441,6 @@ namespace vertex::application
         {
             const auto taker_release_result = seller_wallet.release(market.base(), order_result.remaining_quantity);
             assert(taker_release_result && "Invariant violated: taker release failed after market sell");
-        }
-
-        return order_result;
-    }
-
-    std::expected<OrderPlacementResult, PlaceOrderError> Exchange::execute_market_order(const UserId user_id, const Market &market, const Side side, const Quantity order_quantity)
-    {
-        if (!user_id.is_valid())
-            return std::unexpected(PlaceOrderError::UserNotFound);
-
-        if (!matching_engine_.has_market(market))
-            return std::unexpected(PlaceOrderError::MarketNotListed);
-
-        if (order_quantity <= 0)
-            return std::unexpected(PlaceOrderError::InvalidQuantity);
-
-        auto user_it = wallets_.find(user_id);
-
-        if (user_it == wallets_.end())
-            return std::unexpected(PlaceOrderError::UserNotFound);
-
-        Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
-
-        Wallet &user_wallet = user_it->second;
-        auto reserve_result = user_wallet.reserve(asset_to_reserve, order_quantity);
-
-        if (!reserve_result)
-            return std::unexpected(PlaceOrderError::InsufficientFunds);
-
-
-        OrderPlacementResult order_result;
-
-        if (Side::Buy == side)
-        {
-            order_result = execute_market_buy_by_quote(user_id, market, order_quantity);
-        }
-        else
-        {
-            order_result = execute_market_sell_by_base(user_id, market, order_quantity);
         }
 
         return order_result;

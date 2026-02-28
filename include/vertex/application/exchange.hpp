@@ -104,8 +104,7 @@ namespace vertex::application
 
         OrderPlacementResult execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
         OrderPlacementResult execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
-
-
+        
     public:
         Exchange() = default;
         std::expected<UserId, UserError> create_user(std::string name);
