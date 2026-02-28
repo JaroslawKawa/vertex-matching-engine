@@ -61,13 +61,12 @@ namespace vertex::engine
 
     public:
         explicit OrderBook(Market market);
-        std::vector<Execution> add_limit_order(std::unique_ptr<LimitOrder> order);
         std::vector<Execution> execute_market_order(std::unique_ptr<MarketOrder> order);
         std::optional<CancelResult> cancel(OrderId order_id);
         std::optional<Price> best_bid() const;
         std::optional<Price> best_ask() const;
 
-        void insert_resting(Side side, const RestingOrder &order);
+        void insert_resting(Side side, RestingOrder &&order);
         std::vector<Execution> match_limit_buy_against_asks(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
         std::vector<Execution> match_limit_sell_against_bids(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
     };
