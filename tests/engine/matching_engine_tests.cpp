@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <memory>
-
 #include "vertex/engine/matching_engine.hpp"
 
 namespace

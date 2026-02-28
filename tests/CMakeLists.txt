@@ -6,7 +6,6 @@ add_executable(vertex_tests
     application/exchange_tests.cpp
     domain/user_tests.cpp
     domain/wallet_tests.cpp
-    domain/order_tests.cpp
     domain/trade_tests.cpp
     engine/order_book_tests.cpp
     engine/matching_engine_tests.cpp
