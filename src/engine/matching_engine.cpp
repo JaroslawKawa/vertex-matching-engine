@@ -70,15 +70,11 @@ namespace vertex::engine
                 },
                 [this](const MarketBuyByQuoteRequest &req) -> std::vector<Execution>
                 {
-                    auto order = std::make_unique<MarketOrder>(
-                        req.order_id, req.user_id, req.market, Side::Buy, req.quote_budget);
-                    return execute_market_order(std::move(order));
+                    return execute_market_buy_by_quote(req);
                 },
                 [this](const MarketSellByBaseRequest &req) -> std::vector<Execution>
                 {
-                    auto order = std::make_unique<MarketOrder>(
-                        req.order_id, req.user_id, req.market, Side::Sell, req.base_quantity);
-                    return execute_market_order(std::move(order));
+                    return execute_market_sell_by_base(req);
                 }},
             order_request);
     }
@@ -86,7 +82,7 @@ namespace vertex::engine
     std::vector<Execution> MatchingEngine::handle_limit_request(const LimitOrderRequest &req)
     {
         assert(has_market(req.market));
-        
+
         auto &book = books_.find(req.market)->second;
         Quantity remaining = req.base_quantity;
 
@@ -104,6 +100,24 @@ namespace vertex::engine
             book.insert_resting(req.side, std::move(ro));
         }
         return executions;
+    }
+
+    std::vector<Execution> MatchingEngine::execute_market_buy_by_quote(const MarketBuyByQuoteRequest &req)
+    {
+        assert(has_market(req.market));
+
+        auto &book = books_.find(req.market)->second;
+
+        return book.match_market_buy_by_quote_against_asks(req.order_id, req.quote_budget);
+    }
+
+    std::vector<Execution> MatchingEngine::execute_market_sell_by_base(const MarketSellByBaseRequest &req)
+    {
+        assert(has_market(req.market));
+
+        auto &book = books_.find(req.market)->second;
+
+        return book.match_market_sell_by_base_against_bids(req.order_id, req.base_quantity);
     }
 
 }
