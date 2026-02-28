@@ -68,6 +68,8 @@ namespace vertex::engine
         std::optional<Price> best_ask() const;
 
         void insert_resting(Side side, const RestingOrder &order);
+        std::vector<Execution> match_limit_buy_against_asks(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
+        std::vector<Execution> match_limit_sell_against_bids(const OrderId taker_order_id, const Price limit_price, Quantity &remaining_base_quantity);
     };
 
 }
