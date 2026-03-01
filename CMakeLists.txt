@@ -18,6 +18,7 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 
 add_library(vertex_engine STATIC
+    app/cli/tokenizer.cpp
     src/application/exchange.cpp
     src/application/trade_history.cpp
     src/domain/user.cpp
