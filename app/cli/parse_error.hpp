@@ -17,7 +17,6 @@ namespace vertex::cli
         InvalidToken,
         UnterminatedQuote,
         UnexpectedCharacterAfterQuote,
-
         UnknownCommand,
         MissingArgument,
         TooManyArguments,
