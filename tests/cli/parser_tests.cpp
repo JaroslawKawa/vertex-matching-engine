@@ -102,6 +102,15 @@ TEST(ParserTest, ReturnsInvalidMarketForRegisterMarket)
     EXPECT_EQ(result.error().code, ParseErrorCode::InvalidMarket);
 }
 
+TEST(ParserTest, ReturnsInvalidMarketForSelfMarketWithDifferentCase)
+{
+    const auto result = parse_command("register-market btc/BTC");
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().stage, ParseStage::Parser);
+    EXPECT_EQ(result.error().code, ParseErrorCode::InvalidMarket);
+}
+
 TEST(ParserTest, ReturnsInvalidSideForPlaceLimit)
 {
     const auto result = parse_command("place-limit 1 BTC/USDT hold 100 2");

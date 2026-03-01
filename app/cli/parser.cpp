@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <cstddef>
 #include <vector>
 #include "parser.hpp"
@@ -231,6 +232,20 @@ namespace vertex::cli
 
         std::expected<std::string_view, ParseError> validate_market(std::string_view str, std::size_t col)
         {
+            auto iequals_ascii = [](std::string_view a, std::string_view b) -> bool
+            {
+                if (a.size() != b.size())
+                    return false;
+
+                return std::ranges::equal(
+                    a, b,
+                    [](char lhs, char rhs)
+                    {
+                        return std::tolower(static_cast<unsigned char>(lhs)) ==
+                               std::tolower(static_cast<unsigned char>(rhs));
+                    });
+            };
+
             auto slash_it = str.find('/');
 
             if (slash_it == str.npos)
@@ -262,6 +277,15 @@ namespace vertex::cli
             if (!quote)
             {
                 return std::unexpected(quote.error());
+            }
+
+            if (iequals_ascii(base.value(), quote.value()))
+            {
+                return std::unexpected(ParseError{
+                    .stage = ParseStage::Parser,
+                    .code = ParseErrorCode::InvalidMarket,
+                    .message = "Market base and quote must be different assets",
+                    .column = col});
             }
 
             return str;
