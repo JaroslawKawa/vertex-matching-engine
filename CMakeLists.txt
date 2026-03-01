@@ -29,7 +29,13 @@ add_library(vertex_engine STATIC
 
 target_include_directories(vertex_engine PUBLIC include)
 
-add_executable(vertex_app app/main.cpp)
+add_executable(
+    vertex_app app/main.cpp
+    app/cli/cli_app.cpp
+    app/cli/printer.cpp
+    app/cli/tokenizer.cpp
+    app/cli/parser.cpp
+)
 
 target_link_libraries(vertex_app PRIVATE vertex_engine)
 
