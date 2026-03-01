@@ -42,6 +42,8 @@ User:
 - `get_user_name(user_id)`
 - `user_exists(user_id)`
 
+`create_user(name)` identity uniqueness is guaranteed by `UserId`.
+
 Wallet passthrough:
 
 - `deposit`, `withdraw`, `reserve`, `release`

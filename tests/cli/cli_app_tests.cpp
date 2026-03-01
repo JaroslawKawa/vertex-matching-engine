@@ -41,15 +41,19 @@ TEST(CliAppTest, CreateUserThenGetUserReturnsSameIdentity)
     EXPECT_EQ(std::get<UserRead>(get_result).name, "alice");
 }
 
-TEST(CliAppTest, DuplicateUserReturnsUserAlreadyExists)
+TEST(CliAppTest, DuplicateUserNameCreatesDistinctUsers)
 {
     CliApp app;
 
-    ASSERT_TRUE(std::holds_alternative<UserCreated>(app.dispatch(CreateUser{.name = "alice"})));
+    const auto first_result = app.dispatch(CreateUser{.name = "alice"});
+    const auto second_result = app.dispatch(CreateUser{.name = "alice"});
 
-    const auto duplicate_result = app.dispatch(CreateUser{.name = "alice"});
-    ASSERT_TRUE(std::holds_alternative<AppError>(duplicate_result));
-    EXPECT_EQ(std::get<AppError>(duplicate_result).code, AppErrorCode::UserAlreadyExists);
+    ASSERT_TRUE(std::holds_alternative<UserCreated>(first_result));
+    ASSERT_TRUE(std::holds_alternative<UserCreated>(second_result));
+
+    const auto first_id = std::get<UserCreated>(first_result).user_id;
+    const auto second_id = std::get<UserCreated>(second_result).user_id;
+    EXPECT_NE(first_id, second_id);
 }
 
 TEST(CliAppTest, DepositWithZeroQuantityReturnsInvalidQuantity)
