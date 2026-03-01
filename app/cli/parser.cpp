@@ -65,7 +65,7 @@ namespace vertex::cli
         std::expected<std::string_view, ParseError> validate_name(std::string_view str, std::size_t col)
         {
             auto name_condition = ([](const char c)
-                                   { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || ' '; });
+                                   { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == ' '; });
 
             auto name_ok = std::ranges::all_of(str, name_condition);
 
@@ -514,10 +514,18 @@ namespace vertex::cli
 
         if (root == "help")
         {
+            auto count_ok = validate_arguments_count(t, 1);
+            if (!count_ok)
+                return std::unexpected(count_ok.error());
+
             return Help{};
         }
         else if (root == "exit")
         {
+            auto count_ok = validate_arguments_count(t, 1);
+            if (!count_ok)
+                return std::unexpected(count_ok.error());
+
             return Exit{};
         }
         else if (root == "create-user")

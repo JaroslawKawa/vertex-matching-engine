@@ -23,6 +23,15 @@ TEST(ParserTest, ParsesHelpCommand)
     EXPECT_TRUE(std::holds_alternative<Help>(*result));
 }
 
+TEST(ParserTest, ReturnsTooManyArgumentsForHelp)
+{
+    const auto result = parse_command("help now");
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().stage, ParseStage::Parser);
+    EXPECT_EQ(result.error().code, ParseErrorCode::TooManyArguments);
+}
+
 TEST(ParserTest, ParsesCreateUserWithQuotedName)
 {
     const auto result = parse_command("create-user \"Alice Bob\"");
@@ -53,6 +62,15 @@ TEST(ParserTest, ParsesCancelOrderCommand)
     const auto &cancel = std::get<CancelOrder>(*result);
     EXPECT_EQ(cancel.user_id, 1u);
     EXPECT_EQ(cancel.order_id, 42u);
+}
+
+TEST(ParserTest, ReturnsTooManyArgumentsForExit)
+{
+    const auto result = parse_command("exit now");
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().stage, ParseStage::Parser);
+    EXPECT_EQ(result.error().code, ParseErrorCode::TooManyArguments);
 }
 
 TEST(ParserTest, ReturnsUnknownCommandError)
