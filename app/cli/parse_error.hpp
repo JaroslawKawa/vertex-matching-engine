@@ -1,12 +1,14 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 
 namespace vertex::cli
 {
     enum class ParseStage
     {
-        Tokenizer
+        Tokenizer,
+        Parser
     };
 
     enum class ParseErrorCode
@@ -15,6 +17,16 @@ namespace vertex::cli
         InvalidToken,
         UnterminatedQuote,
         UnexpectedCharacterAfterQuote,
+
+        UnknownCommand,
+        MissingArgument,
+        TooManyArguments,
+        InvalidName,
+        InvalidNumber,
+        InvalidId,
+        InvalidAsset,
+        InvalidMarket,
+        InvalidSide,
     };
 
     struct ParseError
@@ -22,6 +34,6 @@ namespace vertex::cli
         ParseStage stage;
         ParseErrorCode code;
         std::string message;
-        size_t column;
+        std::size_t column;
     };
 }

@@ -16,7 +16,7 @@ namespace vertex::cli
     {
         std::string name;
     };
-    struct GetUserName
+    struct GetUser
     {
         std::uint64_t user_id;
     };
@@ -74,7 +74,7 @@ namespace vertex::cli
         Help,
         Exit,
         CreateUser,
-        GetUserName,
+        GetUser,
         WalletDeposit,
         WalletWithdraw,
         WalletFreeBalance,
