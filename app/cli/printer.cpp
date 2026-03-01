@@ -56,11 +56,11 @@ namespace vertex::cli
     {
         return std::visit(
             Overloaded{
-                [&stream](const ExitRequested &result) -> void
+                [&stream](const ExitRequested &) -> void
                 {
                     stream << "[INFO] Exit requested";
                 },
-                [this, &stream](const HelpRequested &result) -> void
+                [this, &stream](const HelpRequested &) -> void
                 {
                     print_help(stream);
                 },
