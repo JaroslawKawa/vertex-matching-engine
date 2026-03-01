@@ -23,6 +23,7 @@ int main()
         if (!parsed)
         {
             printer.print_parse_error(parsed.error(), std::cout);
+            std::cout << '\n';
             continue;
         }
 

@@ -80,6 +80,17 @@ TEST(ParserTest, ReturnsUnknownCommandError)
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().stage, ParseStage::Parser);
     EXPECT_EQ(result.error().code, ParseErrorCode::UnknownCommand);
+    EXPECT_EQ(result.error().column, 0u);
+}
+
+TEST(ParserTest, ReturnsUnknownCommandErrorWithCorrectColumnAfterLeadingSpaces)
+{
+    const auto result = parse_command("   foo-bar");
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().stage, ParseStage::Parser);
+    EXPECT_EQ(result.error().code, ParseErrorCode::UnknownCommand);
+    EXPECT_EQ(result.error().column, 3u);
 }
 
 TEST(ParserTest, ReturnsInvalidMarketForRegisterMarket)

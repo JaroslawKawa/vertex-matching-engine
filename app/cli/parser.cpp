@@ -574,7 +574,7 @@ namespace vertex::cli
                 .stage = ParseStage::Parser,
                 .code = ParseErrorCode::UnknownCommand,
                 .message = "Unknown command",
-                .column = 0});
+                .column = t[0].index});
         }
     }
 
