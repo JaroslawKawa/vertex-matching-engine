@@ -7,6 +7,51 @@ namespace vertex::application
 {
     using CancelResult = vertex::engine::CancelResult;
 
+    namespace
+    {
+        PlaceOrderError map_to_place_order_error(EngineAsyncError error)
+        {
+            switch (error)
+            {
+            case EngineAsyncError::WorkerStopped:
+                return PlaceOrderError::WorkerStopped;
+            case EngineAsyncError::MarketNotFound:
+                return PlaceOrderError::MarketNotListed;
+            default:
+                assert(false && "Unexpected EngineAsyncError in place order mapping");
+                return PlaceOrderError::WorkerStopped;
+            }
+        }
+
+        CancelOrderError map_to_cancel_order_error(EngineAsyncError error)
+        {
+            switch (error)
+            {
+            case EngineAsyncError::WorkerStopped:
+                return CancelOrderError::WorkerStopped;
+            case EngineAsyncError::MarketNotFound:
+                return CancelOrderError::MarketNotFound;
+            default:
+                assert(false && "Unexpected EngineAsyncError in cancel order mapping");
+                return CancelOrderError::WorkerStopped;
+            }
+        }
+
+        RegisterMarketError map_to_register_market_error(EngineAsyncError error)
+        {
+            switch (error)
+            {
+            case EngineAsyncError::WorkerStopped:
+                return RegisterMarketError::WorkerStopped;
+            case EngineAsyncError::MarketAlreadyRegistered:
+                return RegisterMarketError::AlreadyListed;
+            default:
+                assert(false && "Unexpected EngineAsyncError in register market mapping");
+                return RegisterMarketError::WorkerStopped;
+            }
+        }
+    }
+
     std::expected<UserId, UserError> Exchange::create_user(std::string name)
     {
 
@@ -233,27 +278,19 @@ namespace vertex::application
         order_result.remaining_quantity = quantity;
         order_result.filled_quantity = 0;
 
-        auto matching_result_ex = market_dispatcher_.submit(std::move(limit_order_request)).get();
+        auto matching_result_expected = market_dispatcher_.submit(std::move(limit_order_request)).get();
 
-        if (!matching_result_ex)
+        if (!matching_result_expected)
         {
             const auto rollback_release_result = wallet.release(asset_to_reserve, quantity_to_reserve);
             assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
             orders_.erase(limit_order_request.id);
             orders_market_.erase(limit_order_request.id);
 
-            switch (matching_result_ex.error())
-            {
-            case EngineAsyncError::WorkerStopped:
-                return std::unexpected(PlaceOrderError::WorkerStopped);
-            case EngineAsyncError::MarketNotFound:
-                return std::unexpected(PlaceOrderError::MarketNotListed);
-            default:
-                return std::unexpected(PlaceOrderError::WorkerStopped);
-            }
+            return std::unexpected(map_to_place_order_error(matching_result_expected.error()));
         }
 
-        std::vector<Execution> matching_result = matching_result_ex.value();
+        std::vector<Execution> matching_result = matching_result_expected.value();
 
         if (!matching_result.empty())
         {
@@ -373,23 +410,14 @@ namespace vertex::application
         order_result.remaining_quantity = order_quantity;
         order_result.filled_quantity = 0;
 
-        auto execution_result_ex = market_dispatcher_.submit(std::move(order_request)).get();
+        auto execution_result_expected = market_dispatcher_.submit(std::move(order_request)).get();
 
-        if (!execution_result_ex)
+        if (!execution_result_expected)
         {
-
-            switch (execution_result_ex.error())
-            {
-            case EngineAsyncError::WorkerStopped:
-                return std::unexpected(PlaceOrderError::WorkerStopped);
-            case EngineAsyncError::MarketNotFound:
-                return std::unexpected(PlaceOrderError::MarketNotListed);
-            default:
-                return std::unexpected(PlaceOrderError::WorkerStopped);
-            }
+            return std::unexpected(map_to_place_order_error(execution_result_expected.error()));
         }
 
-        std::vector<Execution> execution_result = execution_result_ex.value();
+        std::vector<Execution> execution_result = execution_result_expected.value();
 
         Wallet &buyer_wallet = wallets_.find(user_id)->second;
 
@@ -447,23 +475,14 @@ namespace vertex::application
         order_result.remaining_quantity = order_quantity;
         order_result.filled_quantity = 0;
 
-        auto execution_result_ex = market_dispatcher_.submit(std::move(order_request)).get();
+        auto execution_result_expected = market_dispatcher_.submit(std::move(order_request)).get();
 
-        if (!execution_result_ex)
+        if (!execution_result_expected)
         {
-
-            switch (execution_result_ex.error())
-            {
-            case EngineAsyncError::WorkerStopped:
-                return std::unexpected(PlaceOrderError::WorkerStopped);
-            case EngineAsyncError::MarketNotFound:
-                return std::unexpected(PlaceOrderError::MarketNotListed);
-            default:
-                return std::unexpected(PlaceOrderError::WorkerStopped);
-            }
+            return std::unexpected(map_to_place_order_error(execution_result_expected.error()));
         }
 
-        std::vector<Execution> execution_result = execution_result_ex.value();
+        std::vector<Execution> execution_result = execution_result_expected.value();
 
         Wallet &seller_wallet = wallets_.find(user_id)->second;
 
@@ -527,21 +546,14 @@ namespace vertex::application
             return std::unexpected(CancelOrderError::OrderNotFound);
         }
 
-        auto cancel_result_ex = market_dispatcher_.cancel(market_it->second, order_id).get();
+        auto cancel_result_expected = market_dispatcher_.cancel(market_it->second, order_id).get();
 
-        if (!cancel_result_ex)
+        if (!cancel_result_expected)
         {
-
-            if (cancel_result_ex.error() == EngineAsyncError::MarketNotFound)
-            {
-                orders_.erase(order_id);
-                orders_market_.erase(order_id);
-                return std::unexpected(CancelOrderError::MarketNotFound);
-            }
-            if (cancel_result_ex.error() == EngineAsyncError::WorkerStopped)
-                return std::unexpected(CancelOrderError::WorkerStopped);
+            return std::unexpected(map_to_cancel_order_error(cancel_result_expected.error()));
         }
-        auto cancel_result = cancel_result_ex.value();
+        
+        auto cancel_result = cancel_result_expected.value();
 
         if (cancel_result == std::nullopt)
         {
@@ -574,21 +586,11 @@ namespace vertex::application
     std::expected<void, RegisterMarketError> Exchange::register_market(const Market &market)
     {
 
-        auto result = market_dispatcher_.register_market(market);
+        auto register_result = market_dispatcher_.register_market(market);
 
-        if (!result)
+        if (!register_result)
         {
-            switch (result.error())
-            {
-            case EngineAsyncError::WorkerStopped:
-                return std::unexpected(RegisterMarketError::WorkerStopped);
-
-            case EngineAsyncError::MarketAlreadyRegistered:
-                return std::unexpected(RegisterMarketError::AlreadyListed);
-
-            default:
-                return std::unexpected(RegisterMarketError::InvalidMarket);
-            }
+            return std::unexpected(map_to_register_market_error(register_result.error()));
         }
 
         return {};

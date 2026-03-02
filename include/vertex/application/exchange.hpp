@@ -10,7 +10,6 @@
 #include "vertex/domain/trade.hpp"
 #include "vertex/domain/user.hpp"
 #include "vertex/domain/wallet.hpp"
-#include "vertex/engine/matching_engine.hpp"
 #include "vertex/engine/order_request.hpp"
 #include "vertex/engine/market_dispatcher.hpp"
 #include "vertex/engine/engine_async_error.hpp"
@@ -57,7 +56,6 @@ namespace vertex::application
     {
         MarketNotListed,
         UserNotFound,
-        WalletNotFound,
         InsufficientFunds,
         InvalidQuantity,
         InvalidAmount,
@@ -74,7 +72,6 @@ namespace vertex::application
     enum class RegisterMarketError
     {
         AlreadyListed,
-        InvalidMarket,
         WorkerStopped
     };
     struct OrderPlacementResult
