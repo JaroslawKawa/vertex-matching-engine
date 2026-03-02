@@ -37,7 +37,8 @@ namespace vertex::application
     using MarketBuyByQuoteRequest = vertex::engine::MarketBuyByQuoteRequest;
     using MarketSellByBaseRequest = vertex::engine::MarketSellByBaseRequest;
     using EngineAsyncError = vertex::engine::EngineAsyncError;
-
+    using WalletError = vertex::domain::WalletError;
+    
     enum class WalletOperationError
     {
         UserNotFound,
@@ -86,13 +87,29 @@ namespace vertex::application
         Side side;
         Quantity remaining_quantity;
     };
+
+    struct Account
+    {
+        User user;
+        Wallet wallet;
+        std::mutex mu{};
+
+        Account(User u, Wallet w)
+            : user(std::move(u)),
+              wallet(std::move(w))
+        {
+        }
+    };
+
     class Exchange
+
     {
     private:
-        std::unordered_map<UserId, User> users_;
-        std::unordered_map<UserId, Wallet> wallets_;
         std::unordered_map<OrderId, UserId> orders_;
         std::unordered_map<OrderId, Market> orders_market_;
+
+        std::unordered_map<UserId, std::shared_ptr<Account>> accounts_;
+        mutable std::shared_mutex accounts_mu_;
 
         UserIdGenerator user_id_generator_;
         OrderIdGenerator order_id_generator_;

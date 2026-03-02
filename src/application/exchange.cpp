@@ -60,19 +60,11 @@ namespace vertex::application
 
         User user{user_id_generator_.next(), name};
 
-        auto [_, user_insert_result] = users_.emplace(user.id(), user);
-
-        // User alread exists
-        if (!user_insert_result)
-            return std::unexpected(UserError::UserAlreadyExists);
-
-        auto [__, wallet_insert_result] = wallets_.emplace(user.id(), Wallet{});
-
-        // Wallet with this user_id alread exists
-        if (!wallet_insert_result)
         {
-            assert(wallet_insert_result && "Invariant violated: wallet for new user id already exists");
-            std::terminate();
+            std::lock_guard lock(accounts_mu_);
+            auto [_, user_insert_result] = accounts_.emplace(user.id(), std::make_shared<Account>(user, Wallet{}));
+            if (!user_insert_result)
+                return std::unexpected(UserError::UserAlreadyExists);
         }
 
         return user.id();
@@ -80,40 +72,45 @@ namespace vertex::application
 
     std::expected<std::string, UserError> Exchange::get_user_name(const UserId user_id) const
     {
+        std::shared_lock lock(accounts_mu_);
+        auto it_user = accounts_.find(user_id);
 
-        auto it_user = users_.find(user_id);
-
-        if (it_user == users_.end())
+        if (it_user == accounts_.end())
             return std::unexpected(UserError::UserNotFound);
 
-        return it_user->second.name();
+        return it_user->second->user.name();
     }
 
     bool Exchange::user_exists(const UserId user_id) const
     {
-
-        return users_.find(user_id) != users_.end();
+        std::shared_lock lock(accounts_mu_);
+        return accounts_.find(user_id) != accounts_.end();
     }
 
     std::expected<void, WalletOperationError> Exchange::deposit(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(WalletOperationError::UserNotFound);
+            account = account_it->second;
+        }
 
-        auto it_user_wallets = wallets_.find(user_id);
+        std::expected<void, WalletError> result;
+        {
+            std::lock_guard lock(account->mu);
+            result = account->wallet.deposit(asset, quantity);
+        }
 
-        // User not found
-        if (it_user_wallets == wallets_.end())
-            return std::unexpected(WalletOperationError::UserNotFound);
-
-        const auto result = it_user_wallets->second.deposit(asset, quantity);
-
-        // Wallet depsoit error
         if (!result)
         {
             auto wallet_error = result.error();
             switch (wallet_error)
 
             {
-            case vertex::domain::WalletError::InvalidAmount:
+            case WalletError::InvalidAmount:
                 return std::unexpected(WalletOperationError::InvalidQuantity);
 
             default:
@@ -127,13 +124,20 @@ namespace vertex::application
 
     std::expected<void, WalletOperationError> Exchange::withdraw(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
-        auto it_user_wallets = wallets_.find(user_id);
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(WalletOperationError::UserNotFound);
+            account = account_it->second;
+        }
 
-        // User not found
-        if (it_user_wallets == wallets_.end())
-            return std::unexpected(WalletOperationError::UserNotFound);
-
-        const auto result = it_user_wallets->second.withdraw(asset, quantity);
+        std::expected<void, WalletError> result;
+        {
+            std::lock_guard lock(account->mu);
+            result = account->wallet.withdraw(asset, quantity);
+        }
 
         if (!result)
         {
@@ -156,13 +160,20 @@ namespace vertex::application
 
     std::expected<void, WalletOperationError> Exchange::reserve(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
-        auto it_user_wallets = wallets_.find(user_id);
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(WalletOperationError::UserNotFound);
+            account = account_it->second;
+        }
 
-        // User not found
-        if (it_user_wallets == wallets_.end())
-            return std::unexpected(WalletOperationError::UserNotFound);
-
-        const auto result = it_user_wallets->second.reserve(asset, quantity);
+        std::expected<void, WalletError> result;
+        {
+            std::lock_guard lock(account->mu);
+            result = account->wallet.reserve(asset, quantity);
+        }
 
         if (!result)
         {
@@ -185,13 +196,20 @@ namespace vertex::application
 
     std::expected<void, WalletOperationError> Exchange::release(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
-        auto it_user_wallets = wallets_.find(user_id);
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(WalletOperationError::UserNotFound);
+            account = account_it->second;
+        }
 
-        // User not found
-        if (it_user_wallets == wallets_.end())
-            return std::unexpected(WalletOperationError::UserNotFound);
-
-        const auto result = it_user_wallets->second.release(asset, quantity);
+        std::expected<void, WalletError> result;
+        {
+            std::lock_guard lock(account->mu);
+            result = account->wallet.release(asset, quantity);
+        }
 
         if (!result)
         {
@@ -214,23 +232,32 @@ namespace vertex::application
 
     std::expected<Quantity, WalletOperationError> Exchange::free_balance(const UserId user_id, const Asset &asset) const
     {
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(WalletOperationError::UserNotFound);
+            account = account_it->second;
+        }
 
-        auto it_user_wallets = wallets_.find(user_id);
-
-        if (it_user_wallets == wallets_.end())
-            return std::unexpected(WalletOperationError::UserNotFound);
-
-        return it_user_wallets->second.free_balance(asset);
+        std::lock_guard lock(account->mu);
+        return account->wallet.free_balance(asset);
     }
 
     std::expected<Quantity, WalletOperationError> Exchange::reserved_balance(const UserId user_id, const Asset &asset) const
     {
-        auto it_user_wallets = wallets_.find(user_id);
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(WalletOperationError::UserNotFound);
+            account = account_it->second;
+        }
 
-        if (it_user_wallets == wallets_.end())
-            return std::unexpected(WalletOperationError::UserNotFound);
-
-        return it_user_wallets->second.reserved_balance(asset);
+        std::lock_guard lock(account->mu);
+        return account->wallet.reserved_balance(asset);
     }
 
     std::expected<OrderPlacementResult, PlaceOrderError> Exchange::place_limit_order(const UserId user_id, const Market &market, Side side, Price price, const Quantity quantity)
@@ -245,11 +272,6 @@ namespace vertex::application
         if (quantity <= 0)
             return std::unexpected(PlaceOrderError::InvalidQuantity);
 
-        auto user_it = wallets_.find(user_id);
-
-        if (user_it == wallets_.end())
-            return std::unexpected(PlaceOrderError::UserNotFound);
-
         if (price <= 0)
             return std::unexpected(PlaceOrderError::InvalidAmount);
 
@@ -257,9 +279,20 @@ namespace vertex::application
         Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
         Quantity quantity_to_reserve = (side == Side::Buy) ? price * quantity : quantity;
 
-        auto &wallet = wallets_.find(user_id)->second;
-        auto reserve_result = wallet.reserve(asset_to_reserve, quantity_to_reserve);
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(PlaceOrderError::UserNotFound);
+            account = account_it->second;
+        }
 
+        std::expected<void, WalletError> reserve_result;
+        {
+            std::lock_guard lock(account->mu);
+            reserve_result = account->wallet.reserve(asset_to_reserve, quantity_to_reserve);
+        }
         if (!reserve_result)
             return std::unexpected(PlaceOrderError::InsufficientFunds);
 
@@ -282,7 +315,11 @@ namespace vertex::application
 
         if (!matching_result_expected)
         {
-            const auto rollback_release_result = wallet.release(asset_to_reserve, quantity_to_reserve);
+            std::expected<void, WalletError> rollback_release_result;
+            {
+                std::lock_guard lock(account->mu);
+                rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
+            }
             assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
             orders_.erase(limit_order_request.id);
             orders_market_.erase(limit_order_request.id);
@@ -305,27 +342,36 @@ namespace vertex::application
                 UserId buyer_user_id = orders_.find(buyer_order_id)->second;
                 UserId seller_user_id = orders_.find(seller_order_id)->second;
 
-                Wallet &buyer_wallet = wallets_.find(buyer_user_id)->second;
-                Wallet &seller_wallet = wallets_.find(seller_user_id)->second;
+                std::shared_ptr<Account> buyer;
+                std::shared_ptr<Account> seller;
 
-                const auto buyer_consume_result = buyer_wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
-                assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
-
-                Quantity refund = execution.buy_order_limit_price * execution.quantity - execution.execution_price * execution.quantity;
-                if (0 < refund)
                 {
-                    const auto buyer_release_result = buyer_wallet.release(market.quote(), refund);
-                    assert(buyer_release_result && "Invariant violated: buyer refund release failed");
+                    std::shared_lock lock(accounts_mu_);
+                    buyer = accounts_.find(buyer_user_id)->second;
+                    seller = accounts_.find(seller_user_id)->second;
                 }
-                const auto buyer_deposit_result = buyer_wallet.deposit(market.base(), execution.quantity);
-                assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+                {
+                    std::lock_guard lock(buyer->mu);
+                    const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
+                    assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
 
-                const auto seller_consume_result = seller_wallet.consume_reserved(market.base(), execution.quantity);
-                assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
+                    Quantity refund = execution.buy_order_limit_price * execution.quantity - execution.execution_price * execution.quantity;
+                    if (0 < refund)
+                    {
+                        const auto buyer_release_result = buyer->wallet.release(market.quote(), refund);
+                        assert(buyer_release_result && "Invariant violated: buyer refund release failed");
+                    }
+                    const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
+                    assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+                }
+                {
+                    std::lock_guard lock(seller->mu);
+                    const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
+                    assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
 
-                const auto seller_deposit_result = seller_wallet.deposit(market.quote(), execution.execution_price * execution.quantity);
-                assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
-
+                    const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.execution_price * execution.quantity);
+                    assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
+                }
                 order_result.remaining_quantity -= execution.quantity;
                 order_result.filled_quantity += execution.quantity;
 
@@ -360,15 +406,21 @@ namespace vertex::application
         if (order_quantity <= 0)
             return std::unexpected(PlaceOrderError::InvalidQuantity);
 
-        auto user_it = wallets_.find(user_id);
-
-        if (user_it == wallets_.end())
-            return std::unexpected(PlaceOrderError::UserNotFound);
-
         Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
 
-        Wallet &user_wallet = user_it->second;
-        auto reserve_result = user_wallet.reserve(asset_to_reserve, order_quantity);
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(PlaceOrderError::UserNotFound);
+            account = account_it->second;
+        }
+        std::expected<void, WalletError> reserve_result;
+        {
+            std::lock_guard lock(account->mu);
+            reserve_result = account->wallet.reserve(asset_to_reserve, order_quantity);
+        }
 
         if (!reserve_result)
             return std::unexpected(PlaceOrderError::InsufficientFunds);
@@ -386,7 +438,8 @@ namespace vertex::application
 
         if (!order_result)
         {
-            const auto rollback_release_result = user_wallet.release(asset_to_reserve, order_quantity);
+            std::lock_guard lock(account->mu);
+            const auto rollback_release_result = account->wallet.release(asset_to_reserve, order_quantity);
             assert(rollback_release_result && "Invariant violated: rollback release failed after market submit error");
         }
 
@@ -419,25 +472,43 @@ namespace vertex::application
 
         std::vector<Execution> execution_result = execution_result_expected.value();
 
-        Wallet &buyer_wallet = wallets_.find(user_id)->second;
+        std::shared_ptr<Account> buyer;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(PlaceOrderError::UserNotFound);
+            buyer = account_it->second;
+        }
 
         for (const auto &execution : execution_result)
         {
             OrderId seller_order_id = execution.sell_order_id;
             assert(orders_.find(seller_order_id) != orders_.end());
             UserId seller_user_id = orders_.find(seller_order_id)->second;
-            Wallet &seller_wallet = wallets_.find(seller_user_id)->second;
 
-            const auto buyer_consume_result = buyer_wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
-            assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
-            const auto buyer_deposit_result = buyer_wallet.deposit(market.base(), execution.quantity);
-            assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-
-            const auto seller_consume_result = seller_wallet.consume_reserved(market.base(), execution.quantity);
-            assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
-            const auto seller_deposit_result = seller_wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
-            assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
-
+            std::shared_ptr<Account> seller;
+            {
+                std::shared_lock lock(accounts_mu_);
+                auto account_it = accounts_.find(seller_user_id);
+                if (account_it == accounts_.end())
+                    return std::unexpected(PlaceOrderError::UserNotFound);
+                seller = account_it->second;
+            }
+            {
+                std::lock_guard lock(buyer->mu);
+                const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
+                assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
+                const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
+                assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+            }
+            {
+                std::lock_guard lock(seller->mu);
+                const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
+                assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
+                const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
+                assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
+            }
             order_result.remaining_quantity -= execution.quantity * execution.execution_price;
             order_result.filled_quantity += execution.quantity * execution.execution_price;
 
@@ -453,7 +524,8 @@ namespace vertex::application
         }
         if (order_result.remaining_quantity > 0)
         {
-            const auto taker_release_result = buyer_wallet.release(market.quote(), order_result.remaining_quantity);
+            std::lock_guard lock(buyer->mu);
+            const auto taker_release_result = buyer->wallet.release(market.quote(), order_result.remaining_quantity);
             assert(taker_release_result && "Invariant violated: taker release failed after market buy");
         }
         return order_result;
@@ -484,25 +556,44 @@ namespace vertex::application
 
         std::vector<Execution> execution_result = execution_result_expected.value();
 
-        Wallet &seller_wallet = wallets_.find(user_id)->second;
+        std::shared_ptr<Account> seller;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(PlaceOrderError::UserNotFound);
+            seller = account_it->second;
+        }
 
         for (const auto &execution : execution_result)
         {
             OrderId buyer_order_id = execution.buy_order_id;
             assert(orders_.find(buyer_order_id) != orders_.end());
             UserId buyer_user_id = orders_.find(buyer_order_id)->second;
-            Wallet &buyer_wallet = wallets_.find(buyer_user_id)->second;
 
-            const auto buyer_consume_result = buyer_wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
-            assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
-            const auto buyer_deposit_result = buyer_wallet.deposit(market.base(), execution.quantity);
-            assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+            std::shared_ptr<Account> buyer;
+            {
+                std::shared_lock lock(accounts_mu_);
+                auto account_it = accounts_.find(buyer_user_id);
+                if (account_it == accounts_.end())
+                    return std::unexpected(PlaceOrderError::UserNotFound);
+                buyer = account_it->second;
+            }
 
-            const auto seller_consume_result = seller_wallet.consume_reserved(market.base(), execution.quantity);
-            assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
-            const auto seller_deposit_result = seller_wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
-            assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
-
+            {
+                std::lock_guard lock(buyer->mu);
+                const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
+                assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
+                const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
+                assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+            }
+            {
+                std::lock_guard lock(seller->mu);
+                const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
+                assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
+                const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
+                assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
+            }
             order_result.remaining_quantity -= execution.quantity;
             order_result.filled_quantity += execution.quantity;
 
@@ -518,7 +609,8 @@ namespace vertex::application
         }
         if (order_result.remaining_quantity > 0)
         {
-            const auto taker_release_result = seller_wallet.release(market.base(), order_result.remaining_quantity);
+            std::lock_guard lock(seller->mu);
+            const auto taker_release_result = seller->wallet.release(market.base(), order_result.remaining_quantity);
             assert(taker_release_result && "Invariant violated: taker release failed after market sell");
         }
 
@@ -527,9 +619,11 @@ namespace vertex::application
 
     std::expected<CancelOrderResult, CancelOrderError> Exchange::cancel_order(const UserId user_id, const OrderId order_id)
     {
-        if (users_.find(user_id) == users_.end())
-            return std::unexpected(CancelOrderError::UserNotFound);
-
+        {
+            std::shared_lock lock(accounts_mu_);
+            if (accounts_.find(user_id) == accounts_.end())
+                return std::unexpected(CancelOrderError::UserNotFound);
+        }
         auto order_it = orders_.find(order_id);
 
         if (order_it == orders_.end())
@@ -552,7 +646,7 @@ namespace vertex::application
         {
             return std::unexpected(map_to_cancel_order_error(cancel_result_expected.error()));
         }
-        
+
         auto cancel_result = cancel_result_expected.value();
 
         if (cancel_result == std::nullopt)
@@ -560,18 +654,31 @@ namespace vertex::application
             return std::unexpected(CancelOrderError::OrderNotFound);
         }
 
-        auto &wallet = wallets_.find(user_id)->second;
+        std::shared_ptr<Account> account;
+        {
+            std::shared_lock lock(accounts_mu_);
+            auto account_it = accounts_.find(user_id);
+            if (account_it == accounts_.end())
+                return std::unexpected(CancelOrderError::UserNotFound);
+            account = account_it->second;
+        }
         CancelOrderResult result;
         if (cancel_result->side == Side::Buy)
         {
-            const auto buyer_release_result = wallet.release(market_it->second.quote(), cancel_result->remaining_quantity * cancel_result->price);
-            assert(buyer_release_result && "Invariant violated: buyer release failed");
+            {
+                std::lock_guard lock(account->mu);
+                const auto buyer_release_result = account->wallet.release(market_it->second.quote(), cancel_result->remaining_quantity * cancel_result->price);
+                assert(buyer_release_result && "Invariant violated: buyer release failed");
+            }
             result.side = Side::Buy;
         }
         else
         {
-            const auto seller_release_result = wallet.release(market_it->second.base(), cancel_result->remaining_quantity);
-            assert(seller_release_result && "Invariant violated: seller release failed");
+            std::lock_guard lock(account->mu);
+            {
+                const auto seller_release_result = account->wallet.release(market_it->second.base(), cancel_result->remaining_quantity);
+                assert(seller_release_result && "Invariant violated: seller release failed");
+            }
             result.side = Side::Sell;
         }
 
