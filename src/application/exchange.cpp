@@ -58,7 +58,13 @@ namespace vertex::application
         if (name.empty())
             return std::unexpected(UserError::EmptyName);
 
-        User user{user_id_generator_.next(), name};
+        UserId user_id;
+        {
+            std::lock_guard lock(user_id_generator_mu_);
+            user_id = user_id_generator_.next();
+        }
+
+        User user{user_id, name};
 
         {
             std::lock_guard lock(accounts_mu_);
@@ -296,8 +302,14 @@ namespace vertex::application
         if (!reserve_result)
             return std::unexpected(PlaceOrderError::InsufficientFunds);
 
+        OrderId order_id;
+        {
+            std::lock_guard lock(order_id_generator_mu_);
+            order_id = order_id_generator_.next();
+        }
+
         LimitOrderRequest limit_order_request{
-            .id = order_id_generator_.next(),
+            .id = order_id,
             .user_id = user_id,
             .market = market,
             .side = side,
@@ -375,7 +387,12 @@ namespace vertex::application
                 order_result.remaining_quantity -= execution.quantity;
                 order_result.filled_quantity += execution.quantity;
 
-                Trade trade{trade_id_generator_.next(), buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
+                TradeId trade_id;
+                {
+                    std::lock_guard lock(trade_id_generator_mu_);
+                    trade_id = trade_id_generator_.next();
+                }
+                Trade trade{trade_id, buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
 
                 trade_history_.add(std::move(trade));
 
@@ -451,8 +468,13 @@ namespace vertex::application
 
         OrderPlacementResult order_result;
 
+        OrderId order_id;
+        {
+            std::lock_guard lock(order_id_generator_mu_);
+            order_id = order_id_generator_.next();
+        }
         MarketBuyByQuoteRequest order_request{
-            .id = order_id_generator_.next(),
+            .id = order_id,
             .user_id = user_id,
             .market = market,
             .quote_budget = order_quantity
@@ -512,7 +534,12 @@ namespace vertex::application
             order_result.remaining_quantity -= execution.quantity * execution.execution_price;
             order_result.filled_quantity += execution.quantity * execution.execution_price;
 
-            Trade trade{trade_id_generator_.next(), user_id, seller_user_id, order_result.order_id, seller_order_id, market, execution.quantity, execution.execution_price};
+            TradeId trade_id;
+            {
+                std::lock_guard lock(trade_id_generator_mu_);
+                trade_id = trade_id_generator_.next();
+            }
+            Trade trade{trade_id, user_id, seller_user_id, order_result.order_id, seller_order_id, market, execution.quantity, execution.execution_price};
 
             trade_history_.add(std::move(trade));
 
@@ -535,8 +562,14 @@ namespace vertex::application
     {
         OrderPlacementResult order_result;
 
+        OrderId order_id;
+        {
+            std::lock_guard lock(order_id_generator_mu_);
+            order_id = order_id_generator_.next();
+        }
+
         MarketSellByBaseRequest order_request{
-            .id = order_id_generator_.next(),
+            .id = order_id,
             .user_id = user_id,
             .market = market,
             .base_quantity = order_quantity
@@ -597,7 +630,12 @@ namespace vertex::application
             order_result.remaining_quantity -= execution.quantity;
             order_result.filled_quantity += execution.quantity;
 
-            Trade trade{trade_id_generator_.next(), buyer_user_id, user_id, buyer_order_id, order_result.order_id, market, execution.quantity, execution.execution_price};
+            TradeId trade_id;
+            {
+                std::lock_guard lock(trade_id_generator_mu_);
+                trade_id = trade_id_generator_.next();
+            }
+            Trade trade{trade_id, buyer_user_id, user_id, buyer_order_id, order_result.order_id, market, execution.quantity, execution.execution_price};
 
             trade_history_.add(std::move(trade));
 

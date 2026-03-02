@@ -38,7 +38,7 @@ namespace vertex::application
     using MarketSellByBaseRequest = vertex::engine::MarketSellByBaseRequest;
     using EngineAsyncError = vertex::engine::EngineAsyncError;
     using WalletError = vertex::domain::WalletError;
-    
+
     enum class WalletOperationError
     {
         UserNotFound,
@@ -112,8 +112,11 @@ namespace vertex::application
         mutable std::shared_mutex accounts_mu_;
 
         UserIdGenerator user_id_generator_;
+        std::mutex user_id_generator_mu_;
         OrderIdGenerator order_id_generator_;
+        std::mutex order_id_generator_mu_;
         TradeIdGenerator trade_id_generator_;
+        std::mutex trade_id_generator_mu_;
 
         MarketDispatcher market_dispatcher_{};
         TradeHistory trade_history_{};
