@@ -12,6 +12,9 @@
 #include "vertex/domain/wallet.hpp"
 #include "vertex/engine/matching_engine.hpp"
 #include "vertex/engine/order_request.hpp"
+#include "vertex/engine/market_dispatcher.hpp"
+#include "vertex/engine/engine_async_error.hpp"
+
 namespace vertex::application
 {
     using TradeHistory = vertex::application::TradeHistory;
@@ -27,14 +30,15 @@ namespace vertex::application
     using Asset = vertex::core::Asset;
     using Price = vertex::core::Price;
     using Side = vertex::core::Side;
-    using MatchingEngine = vertex::engine::MatchingEngine;
+    using MarketDispatcher = vertex::engine::MarketDispatcher;
     using Market = vertex::core::Market;
     using Execution = vertex::engine::Execution;
     using Trade = vertex::domain::Trade;
     using LimitOrderRequest = vertex::engine::LimitOrderRequest;
     using MarketBuyByQuoteRequest = vertex::engine::MarketBuyByQuoteRequest;
     using MarketSellByBaseRequest = vertex::engine::MarketSellByBaseRequest;
-    
+    using EngineAsyncError = vertex::engine::EngineAsyncError;
+
     enum class WalletOperationError
     {
         UserNotFound,
@@ -56,18 +60,22 @@ namespace vertex::application
         WalletNotFound,
         InsufficientFunds,
         InvalidQuantity,
-        InvalidAmount
+        InvalidAmount,
+        WorkerStopped
     };
     enum class CancelOrderError
     {
         UserNotFound,
         OrderNotFound,
-        NotOrderOwner
+        NotOrderOwner,
+        MarketNotFound,
+        WorkerStopped
     };
     enum class RegisterMarketError
     {
         AlreadyListed,
-        InvalidMarket
+        InvalidMarket,
+        WorkerStopped
     };
     struct OrderPlacementResult
     {
@@ -93,12 +101,12 @@ namespace vertex::application
         OrderIdGenerator order_id_generator_;
         TradeIdGenerator trade_id_generator_;
 
-        MatchingEngine matching_engine_{};
+        MarketDispatcher market_dispatcher_{};
         TradeHistory trade_history_{};
 
-        OrderPlacementResult execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
-        OrderPlacementResult execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
-        
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
+
     public:
         Exchange() = default;
         std::expected<UserId, UserError> create_user(std::string name);
