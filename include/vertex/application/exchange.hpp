@@ -40,7 +40,7 @@ namespace vertex::application
         UserNotFound,
         InsufficientFunds,
         InsufficientReserved,
-        InvalidAmount
+        InvalidQuantity
 
     };
     enum class UserError

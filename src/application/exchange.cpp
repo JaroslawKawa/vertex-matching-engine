@@ -69,7 +69,7 @@ namespace vertex::application
 
             {
             case vertex::domain::WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidAmount);
+                return std::unexpected(WalletOperationError::InvalidQuantity);
 
             default:
                 assert(false && "Unexpected WalletError in deposit");
@@ -99,7 +99,7 @@ namespace vertex::application
                 return std::unexpected(WalletOperationError::InsufficientFunds);
 
             case vertex::domain::WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidAmount);
+                return std::unexpected(WalletOperationError::InvalidQuantity);
 
             default:
                 assert(false && "Unexpected WalletError in withdraw");
@@ -128,7 +128,7 @@ namespace vertex::application
                 return std::unexpected(WalletOperationError::InsufficientFunds);
 
             case vertex::domain::WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidAmount);
+                return std::unexpected(WalletOperationError::InvalidQuantity);
 
             default:
                 assert(false && "Unexpected WalletError in reserve");
@@ -157,7 +157,7 @@ namespace vertex::application
                 return std::unexpected(WalletOperationError::InsufficientReserved);
 
             case vertex::domain::WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidAmount);
+                return std::unexpected(WalletOperationError::InvalidQuantity);
 
             default:
                 assert(false && "Unexpected WalletError in release");
