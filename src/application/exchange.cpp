@@ -1,5 +1,6 @@
 #include <cassert>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <vertex/application/exchange.hpp>
 #include <vertex/engine/order_book.hpp>
@@ -49,6 +50,35 @@ namespace vertex::application
                 assert(false && "Unexpected EngineAsyncError in register market mapping");
                 return RegisterMarketError::WorkerStopped;
             }
+        }
+
+        struct TwoAccountLocks
+        {
+            std::unique_lock<std::mutex> first;
+            std::optional<std::unique_lock<std::mutex>> second;
+        };
+
+        TwoAccountLocks lock_two_accounts(UserId a_id, Account &a_account, UserId b_id, Account &b_account)
+        {
+            TwoAccountLocks locks;
+
+            if (a_id == b_id)
+            {
+                locks.first = std::unique_lock(a_account.mu);
+                return locks;
+            }
+
+            if (a_id < b_id)
+            {
+                locks.first = std::unique_lock(a_account.mu);
+                locks.second = std::unique_lock(b_account.mu);
+            }
+            else
+            {
+                locks.first = std::unique_lock(b_account.mu);
+                locks.second = std::unique_lock(a_account.mu);
+            }
+            return locks;
         }
     }
 
@@ -316,7 +346,8 @@ namespace vertex::application
             .limit_price = price,
             .base_quantity = quantity};
 
-        if(!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side=side, .price=price})){
+        if (!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side = side, .price = price}))
+        {
             std::expected<void, WalletError> rollback_release_result;
             {
                 std::lock_guard lock(account->mu);
@@ -371,7 +402,7 @@ namespace vertex::application
                     seller = accounts_.find(seller_user_id)->second;
                 }
                 {
-                    std::lock_guard lock(buyer->mu);
+                    auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
                     const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
                     assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
 
@@ -383,9 +414,6 @@ namespace vertex::application
                     }
                     const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
                     assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-                }
-                {
-                    std::lock_guard lock(seller->mu);
                     const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
                     assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
 
@@ -524,14 +552,11 @@ namespace vertex::application
                 seller = account_it->second;
             }
             {
-                std::lock_guard lock(buyer->mu);
+                auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
                 const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
                 assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
                 const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
                 assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-            }
-            {
-                std::lock_guard lock(seller->mu);
                 const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
                 assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
                 const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
@@ -619,14 +644,11 @@ namespace vertex::application
             }
 
             {
-                std::lock_guard lock(buyer->mu);
+                auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
                 const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
                 assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
                 const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
                 assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-            }
-            {
-                std::lock_guard lock(seller->mu);
                 const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
                 assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
                 const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
