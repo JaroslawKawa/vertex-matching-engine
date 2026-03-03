@@ -15,12 +15,13 @@ int main(int argc, char **argv)
     cfg.warmup_seconds = 2;
     cfg.measure_seconds = 10;
     cfg.repeats = 10;
-    cfg.thread_count = 8;
+    cfg.thread_count = 24;
     cfg.seed = 0xC0FFEEu;
     cfg.verbose = true;
 
     BenchmarkRunner run{cfg};
     print_run_result(run.run_single_market(1));
+    print_run_result(run.run_multi_market(1));
 
     return 0;
 }

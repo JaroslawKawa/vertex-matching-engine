@@ -93,11 +93,11 @@ public:
     std::vector<ScenarioMetrics> run_scenario(ScenarioKind kind);
     AggregateMetrics aggregate(ScenarioKind kind, const std::vector<ScenarioMetrics> &runs) const;
     ScenarioMetrics run_single_market(int repeat_index);
+    ScenarioMetrics run_multi_market(int repeat_index);
 
 private:
     BenchConfig cfg_;
 
-    ScenarioMetrics run_multi_market(int repeat_index);
     ScenarioMetrics run_shared_users(int repeat_index);
     ScenarioMetrics run_disjoint_users(int repeat_index);
 
