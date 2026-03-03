@@ -388,10 +388,14 @@ namespace vertex::application
 
                 OrderId buyer_order_id = execution.buy_order_id;
                 OrderId seller_order_id = execution.sell_order_id;
-                assert(order_meta_store_.find(buyer_order_id) != std::nullopt);
-                assert(order_meta_store_.find(seller_order_id) != std::nullopt);
-                UserId buyer_user_id = order_meta_store_.find(buyer_order_id)->owner;
-                UserId seller_user_id = order_meta_store_.find(seller_order_id)->owner;
+
+                auto buyer_order_meta = order_meta_store_.find(buyer_order_id);
+                assert(buyer_order_meta != std::nullopt);
+                UserId buyer_user_id = buyer_order_meta->owner;
+
+                auto seller_order_meta = order_meta_store_.find(seller_order_id);
+                assert(seller_order_meta != std::nullopt);
+                UserId seller_user_id = seller_order_meta->owner;
 
                 std::shared_ptr<Account> buyer;
                 std::shared_ptr<Account> seller;
@@ -540,8 +544,9 @@ namespace vertex::application
         for (const auto &execution : execution_result)
         {
             OrderId seller_order_id = execution.sell_order_id;
-            assert(order_meta_store_.find(seller_order_id) != std::nullopt);
-            UserId seller_user_id = order_meta_store_.find(seller_order_id)->owner;
+            auto seller_order_meta = order_meta_store_.find(seller_order_id);
+            assert(seller_order_meta != std::nullopt);
+            UserId seller_user_id = seller_order_meta->owner;
 
             std::shared_ptr<Account> seller;
             {
@@ -631,8 +636,10 @@ namespace vertex::application
         for (const auto &execution : execution_result)
         {
             OrderId buyer_order_id = execution.buy_order_id;
-            assert(order_meta_store_.find(buyer_order_id) != std::nullopt);
-            UserId buyer_user_id = order_meta_store_.find(buyer_order_id)->owner;
+
+            auto buyer_order_meta = order_meta_store_.find(buyer_order_id);
+            assert(buyer_order_meta != std::nullopt);
+            UserId buyer_user_id = buyer_order_meta->owner;
 
             std::shared_ptr<Account> buyer;
             {
@@ -688,7 +695,7 @@ namespace vertex::application
             if (accounts_.find(user_id) == accounts_.end())
                 return std::unexpected(CancelOrderError::UserNotFound);
         }
-        auto order = order_meta_store_.find(order_id);
+        const auto order = order_meta_store_.find(order_id);
 
         if (order == std::nullopt)
             return std::unexpected(CancelOrderError::OrderNotFound);
