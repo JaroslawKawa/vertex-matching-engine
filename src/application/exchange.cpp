@@ -316,8 +316,17 @@ namespace vertex::application
             .limit_price = price,
             .base_quantity = quantity};
 
-        orders_[limit_order_request.id] = user_id;
-        orders_market_.insert_or_assign(limit_order_request.id, market);
+        if(!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side=side, .price=price})){
+            std::expected<void, WalletError> rollback_release_result;
+            {
+                std::lock_guard lock(account->mu);
+                rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
+            }
+            assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
+            order_meta_store_.erase(limit_order_request.id);
+
+            return std::unexpected(PlaceOrderError::OrderIdCollision);
+        }
 
         order_result.order_id = limit_order_request.id;
         order_result.remaining_quantity = quantity;
@@ -333,8 +342,7 @@ namespace vertex::application
                 rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
             }
             assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
-            orders_.erase(limit_order_request.id);
-            orders_market_.erase(limit_order_request.id);
+            order_meta_store_.erase(limit_order_request.id);
 
             return std::unexpected(map_to_place_order_error(matching_result_expected.error()));
         }
@@ -349,10 +357,10 @@ namespace vertex::application
 
                 OrderId buyer_order_id = execution.buy_order_id;
                 OrderId seller_order_id = execution.sell_order_id;
-                assert(orders_.find(buyer_order_id) != orders_.end());
-                assert(orders_.find(seller_order_id) != orders_.end());
-                UserId buyer_user_id = orders_.find(buyer_order_id)->second;
-                UserId seller_user_id = orders_.find(seller_order_id)->second;
+                assert(order_meta_store_.find(buyer_order_id) != std::nullopt);
+                assert(order_meta_store_.find(seller_order_id) != std::nullopt);
+                UserId buyer_user_id = order_meta_store_.find(buyer_order_id)->owner;
+                UserId seller_user_id = order_meta_store_.find(seller_order_id)->owner;
 
                 std::shared_ptr<Account> buyer;
                 std::shared_ptr<Account> seller;
@@ -398,13 +406,11 @@ namespace vertex::application
 
                 if (execution.buy_fully_filled)
                 {
-                    orders_.erase(execution.buy_order_id);
-                    orders_market_.erase(execution.buy_order_id);
+                    order_meta_store_.erase(execution.buy_order_id);
                 }
                 if (execution.sell_fully_filled)
                 {
-                    orders_.erase(execution.sell_order_id);
-                    orders_market_.erase(execution.sell_order_id);
+                    order_meta_store_.erase(execution.sell_order_id);
                 }
             }
         }
@@ -506,8 +512,8 @@ namespace vertex::application
         for (const auto &execution : execution_result)
         {
             OrderId seller_order_id = execution.sell_order_id;
-            assert(orders_.find(seller_order_id) != orders_.end());
-            UserId seller_user_id = orders_.find(seller_order_id)->second;
+            assert(order_meta_store_.find(seller_order_id) != std::nullopt);
+            UserId seller_user_id = order_meta_store_.find(seller_order_id)->owner;
 
             std::shared_ptr<Account> seller;
             {
@@ -545,8 +551,7 @@ namespace vertex::application
 
             if (execution.sell_fully_filled)
             {
-                orders_.erase(execution.sell_order_id);
-                orders_market_.erase(execution.sell_order_id);
+                order_meta_store_.erase(execution.sell_order_id);
             }
         }
         if (order_result.remaining_quantity > 0)
@@ -601,8 +606,8 @@ namespace vertex::application
         for (const auto &execution : execution_result)
         {
             OrderId buyer_order_id = execution.buy_order_id;
-            assert(orders_.find(buyer_order_id) != orders_.end());
-            UserId buyer_user_id = orders_.find(buyer_order_id)->second;
+            assert(order_meta_store_.find(buyer_order_id) != std::nullopt);
+            UserId buyer_user_id = order_meta_store_.find(buyer_order_id)->owner;
 
             std::shared_ptr<Account> buyer;
             {
@@ -641,8 +646,7 @@ namespace vertex::application
 
             if (execution.buy_fully_filled)
             {
-                orders_.erase(execution.buy_order_id);
-                orders_market_.erase(execution.buy_order_id);
+                order_meta_store_.erase(execution.buy_order_id);
             }
         }
         if (order_result.remaining_quantity > 0)
@@ -662,23 +666,15 @@ namespace vertex::application
             if (accounts_.find(user_id) == accounts_.end())
                 return std::unexpected(CancelOrderError::UserNotFound);
         }
-        auto order_it = orders_.find(order_id);
+        auto order = order_meta_store_.find(order_id);
 
-        if (order_it == orders_.end())
+        if (order == std::nullopt)
             return std::unexpected(CancelOrderError::OrderNotFound);
 
-        if (order_it->second != user_id)
+        if (order->owner != user_id)
             return std::unexpected(CancelOrderError::NotOrderOwner);
 
-        auto market_it = orders_market_.find(order_id);
-
-        if (market_it == orders_market_.end())
-        {
-            orders_.erase(order_id);
-            return std::unexpected(CancelOrderError::OrderNotFound);
-        }
-
-        auto cancel_result_expected = market_dispatcher_.cancel(market_it->second, order_id).get();
+        auto cancel_result_expected = market_dispatcher_.cancel(order->market, order_id).get();
 
         if (!cancel_result_expected)
         {
@@ -705,7 +701,7 @@ namespace vertex::application
         {
             {
                 std::lock_guard lock(account->mu);
-                const auto buyer_release_result = account->wallet.release(market_it->second.quote(), cancel_result->remaining_quantity * cancel_result->price);
+                const auto buyer_release_result = account->wallet.release(order->market.quote(), cancel_result->remaining_quantity * cancel_result->price);
                 assert(buyer_release_result && "Invariant violated: buyer release failed");
             }
             result.side = Side::Buy;
@@ -714,7 +710,7 @@ namespace vertex::application
         {
             std::lock_guard lock(account->mu);
             {
-                const auto seller_release_result = account->wallet.release(market_it->second.base(), cancel_result->remaining_quantity);
+                const auto seller_release_result = account->wallet.release(order->market.base(), cancel_result->remaining_quantity);
                 assert(seller_release_result && "Invariant violated: seller release failed");
             }
             result.side = Side::Sell;
@@ -722,8 +718,7 @@ namespace vertex::application
 
         result.id = order_id;
         result.remaining_quantity = cancel_result->remaining_quantity;
-        orders_.erase(order_id);
-        orders_market_.erase(order_id);
+        order_meta_store_.erase(order_id);
 
         return result;
     }

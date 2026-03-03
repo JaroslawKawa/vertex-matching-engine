@@ -5,6 +5,7 @@
 #include <expected>
 #include <string>
 #include "vertex/application/trade_history.hpp"
+#include "vertex/application/order_meta_store.hpp"
 #include "vertex/core/id_generator.hpp"
 #include "vertex/core/types.hpp"
 #include "vertex/domain/trade.hpp"
@@ -60,7 +61,8 @@ namespace vertex::application
         InsufficientFunds,
         InvalidQuantity,
         InvalidAmount,
-        WorkerStopped
+        WorkerStopped,
+        OrderIdCollision
     };
     enum class CancelOrderError
     {
@@ -105,8 +107,7 @@ namespace vertex::application
 
     {
     private:
-        std::unordered_map<OrderId, UserId> orders_;
-        std::unordered_map<OrderId, Market> orders_market_;
+        OrderMetaStore order_meta_store_;
 
         std::unordered_map<UserId, std::shared_ptr<Account>> accounts_;
         mutable std::shared_mutex accounts_mu_;
