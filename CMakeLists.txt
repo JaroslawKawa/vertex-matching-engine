@@ -44,9 +44,12 @@ add_executable(vertex_app
 
 target_link_libraries(vertex_app PRIVATE vertex_engine)
 
-if (TARGET vertex_tsan_flags)
-    target_link_libraries(vertex_engine PRIVATE vertex_tsan_flags)
-endif()
+add_executable(vertex_bench 
+    bench/main.cpp
+    bench/benchmark_runner.cpp
+)
+
+target_link_libraries(vertex_bench PRIVATE vertex_engine)
 
 if (MSVC)
     target_compile_options(vertex_app PRIVATE /W4)
@@ -67,6 +70,10 @@ if (VERTEX_ENABLE_TSAN)
     else()
         message(FATAL_ERROR "TSAN is supported only on Linux with GCC/Clang")
     endif()
+endif()
+
+if (TARGET vertex_tsan_flags)
+    target_link_libraries(vertex_engine PRIVATE vertex_tsan_flags)
 endif()
 
 add_subdirectory(tests)
