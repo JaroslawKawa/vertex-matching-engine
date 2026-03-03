@@ -4,7 +4,9 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
+#include <latch>
 #include <mutex>
+#include <random>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -61,6 +63,38 @@ namespace
         std::thread watchdog_;
     };
 
+    class ThreadStartGate
+    {
+    public:
+        explicit ThreadStartGate(std::ptrdiff_t workers)
+            : ready_(workers)
+        {
+        }
+
+        void worker_ready_and_wait()
+        {
+            ready_.count_down();
+            go_.wait();
+        }
+
+        void release_workers()
+        {
+            ready_.wait();
+            go_.count_down();
+        }
+
+    private:
+        std::latch ready_;
+        std::latch go_{1};
+    };
+
+    std::mt19937 make_rng(std::uint32_t seed, std::uint32_t stream)
+    {
+        return std::mt19937(seed + stream * 9973U);
+    }
+
+    constexpr int kScenarioRepeats = 3;
+
     Market btc_usdt()
     {
         return Market{Asset{"btc"}, Asset{"usdt"}};
@@ -94,18 +128,16 @@ TEST(ExchangeConcurrencyTest, ConcurrentDepositWithdrawOnSameUserKeepsBalancesCo
 
     ASSERT_TRUE(exchange.deposit(user_id, usdt, kInitialBalance).has_value());
 
-    std::atomic<bool> start{false};
     std::atomic<bool> ok{true};
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
+    ThreadStartGate start_gate{kThreads};
+    TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
 
     for (int t = 0; t < kThreads; ++t)
     {
         threads.emplace_back([&]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
+            start_gate.worker_ready_and_wait();
 
             for (int i = 0; i < kIterationsPerThread; ++i)
             {
@@ -123,7 +155,7 @@ TEST(ExchangeConcurrencyTest, ConcurrentDepositWithdrawOnSameUserKeepsBalancesCo
         });
     }
 
-    start.store(true, std::memory_order_release);
+    start_gate.release_workers();
     for (auto &thread : threads)
     {
         thread.join();
@@ -158,19 +190,17 @@ TEST(ExchangeConcurrencyTest, ConcurrentOperationsOnDifferentUsersStayIsolated)
         ASSERT_TRUE(exchange.deposit(users.back(), usdt, kInitialBalance).has_value());
     }
 
-    std::atomic<bool> start{false};
     std::atomic<bool> ok{true};
     std::vector<std::thread> threads;
     threads.reserve(kUsers);
+    ThreadStartGate start_gate{kUsers};
+    TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
 
     for (int i = 0; i < kUsers; ++i)
     {
         const UserId user_id = users[i];
-        threads.emplace_back([&exchange, &start, &ok, user_id, usdt]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
+        threads.emplace_back([&exchange, &start_gate, &ok, user_id, usdt]() {
+            start_gate.worker_ready_and_wait();
 
             for (int iter = 0; iter < kIterationsPerThread; ++iter)
             {
@@ -198,7 +228,7 @@ TEST(ExchangeConcurrencyTest, ConcurrentOperationsOnDifferentUsersStayIsolated)
         });
     }
 
-    start.store(true, std::memory_order_release);
+    start_gate.release_workers();
     for (auto &thread : threads)
     {
         thread.join();
@@ -226,18 +256,16 @@ TEST(TradeHistoryConcurrencyTest, ConcurrentAddAndConcurrentReadAreStable)
     constexpr int kReaderThreads = 8;
     constexpr int kReadsPerReader = 300;
 
-    std::atomic<bool> start{false};
     std::atomic<bool> ok{true};
     std::vector<std::thread> writers;
     writers.reserve(kWriterThreads);
+    ThreadStartGate writer_start_gate{kWriterThreads};
+    TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
 
     for (int w = 0; w < kWriterThreads; ++w)
     {
         writers.emplace_back([&, w]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
+            writer_start_gate.worker_ready_and_wait();
 
             for (int i = 0; i < kTradesPerWriter; ++i)
             {
@@ -255,7 +283,7 @@ TEST(TradeHistoryConcurrencyTest, ConcurrentAddAndConcurrentReadAreStable)
         });
     }
 
-    start.store(true, std::memory_order_release);
+    writer_start_gate.release_workers();
     for (auto &writer : writers)
     {
         writer.join();
@@ -311,568 +339,560 @@ TEST(TradeHistoryConcurrencyTest, ConcurrentAddAndConcurrentReadAreStable)
 
 TEST(ExchangeConcurrencyTest, CancelVsFillDoesNotDeadlock)
 {
-    Exchange exchange;
-    const Market market = btc_usdt();
-    const Asset btc{"btc"};
-    const Asset usdt{"usdt"};
-
-    ASSERT_TRUE(exchange.register_market(market).has_value());
-
-    const auto seller_result = exchange.create_user("seller-deadlock");
-    const auto buyer_result = exchange.create_user("buyer-deadlock");
-    ASSERT_TRUE(seller_result.has_value());
-    ASSERT_TRUE(buyer_result.has_value());
-    const UserId seller = *seller_result;
-    const UserId buyer = *buyer_result;
-
     constexpr int kInitialOrders = 300;
     constexpr int kOpsPerThread = 900;
-    ASSERT_TRUE(exchange.deposit(seller, btc, kInitialOrders + 1000).has_value());
-    ASSERT_TRUE(exchange.deposit(buyer, usdt, kOpsPerThread + 1000).has_value());
 
-    std::vector<OrderId> order_ids;
-    order_ids.reserve(kInitialOrders);
-    for (int i = 0; i < kInitialOrders; ++i)
+    for (int repeat = 0; repeat < kScenarioRepeats; ++repeat)
     {
-        const auto place = exchange.place_limit_order(seller, market, Side::Sell, 1, 1);
-        ASSERT_TRUE(place.has_value());
-        order_ids.push_back(place->order_id);
+        Exchange exchange;
+        const Market market = btc_usdt();
+        const Asset btc{"btc"};
+        const Asset usdt{"usdt"};
+
+        ASSERT_TRUE(exchange.register_market(market).has_value());
+
+        const auto seller_result = exchange.create_user("seller-deadlock");
+        const auto buyer_result = exchange.create_user("buyer-deadlock");
+        ASSERT_TRUE(seller_result.has_value());
+        ASSERT_TRUE(buyer_result.has_value());
+        const UserId seller = *seller_result;
+        const UserId buyer = *buyer_result;
+
+        ASSERT_TRUE(exchange.deposit(seller, btc, kInitialOrders + 1000).has_value());
+        ASSERT_TRUE(exchange.deposit(buyer, usdt, kOpsPerThread + 1000).has_value());
+
+        std::vector<OrderId> order_ids;
+        order_ids.reserve(kInitialOrders);
+        for (int i = 0; i < kInitialOrders; ++i)
+        {
+            const auto place = exchange.place_limit_order(seller, market, Side::Sell, 1, 1);
+            ASSERT_TRUE(place.has_value());
+            order_ids.push_back(place->order_id);
+        }
+
+        std::atomic<bool> ok{true};
+        std::atomic<int> cancel_attempts{0};
+        std::atomic<int> fill_attempts{0};
+        ThreadStartGate start_gate{2};
+        TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+
+        std::thread cancel_thread([&]() {
+            start_gate.worker_ready_and_wait();
+            auto rng = make_rng(0xC0FFEEU, static_cast<std::uint32_t>(repeat + 1));
+            std::uniform_int_distribution<int> idx_dist(0, kInitialOrders - 1);
+
+            for (int i = 0; i < kOpsPerThread; ++i)
+            {
+                const OrderId id = order_ids[static_cast<std::size_t>(idx_dist(rng))];
+                const auto cancel_result = exchange.cancel_order(seller, id);
+                if (!cancel_result.has_value() && cancel_result.error() != CancelOrderError::OrderNotFound)
+                {
+                    ok.store(false, std::memory_order_release);
+                    return;
+                }
+                cancel_attempts.fetch_add(1, std::memory_order_acq_rel);
+            }
+        });
+
+        std::thread fill_thread([&]() {
+            start_gate.worker_ready_and_wait();
+            auto rng = make_rng(0xBADA55U, static_cast<std::uint32_t>(repeat + 1));
+            std::uniform_int_distribution<int> qty_dist(1, 1);
+
+            for (int i = 0; i < kOpsPerThread; ++i)
+            {
+                const auto market_buy = exchange.execute_market_order(buyer, market, Side::Buy, qty_dist(rng));
+                if (!market_buy.has_value())
+                {
+                    ok.store(false, std::memory_order_release);
+                    return;
+                }
+                fill_attempts.fetch_add(1, std::memory_order_acq_rel);
+            }
+        });
+
+        start_gate.release_workers();
+        cancel_thread.join();
+        fill_thread.join();
+
+        EXPECT_TRUE(ok.load(std::memory_order_acquire));
+        EXPECT_EQ(cancel_attempts.load(std::memory_order_acquire), kOpsPerThread);
+        EXPECT_EQ(fill_attempts.load(std::memory_order_acquire), kOpsPerThread);
     }
-
-    std::atomic<bool> start{false};
-    std::atomic<bool> ok{true};
-    std::atomic<int> cancel_attempts{0};
-    std::atomic<int> fill_attempts{0};
-
-    TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
-
-    std::thread cancel_thread([&]() {
-        while (!start.load(std::memory_order_acquire))
-        {
-            std::this_thread::yield();
-        }
-
-        for (int i = 0; i < kOpsPerThread; ++i)
-        {
-            const OrderId id = order_ids[static_cast<std::size_t>(i % kInitialOrders)];
-            const auto cancel_result = exchange.cancel_order(seller, id);
-            if (!cancel_result.has_value() && cancel_result.error() != CancelOrderError::OrderNotFound)
-            {
-                ok.store(false, std::memory_order_release);
-                break;
-            }
-            cancel_attempts.fetch_add(1, std::memory_order_acq_rel);
-        }
-    });
-
-    std::thread fill_thread([&]() {
-        while (!start.load(std::memory_order_acquire))
-        {
-            std::this_thread::yield();
-        }
-
-        for (int i = 0; i < kOpsPerThread; ++i)
-        {
-            const auto market_buy = exchange.execute_market_order(buyer, market, Side::Buy, 1);
-            if (!market_buy.has_value())
-            {
-                ok.store(false, std::memory_order_release);
-                break;
-            }
-            fill_attempts.fetch_add(1, std::memory_order_acq_rel);
-        }
-    });
-
-    start.store(true, std::memory_order_release);
-    cancel_thread.join();
-    fill_thread.join();
-
-    EXPECT_TRUE(ok.load(std::memory_order_acquire));
-    EXPECT_EQ(cancel_attempts.load(std::memory_order_acquire), kOpsPerThread);
-    EXPECT_EQ(fill_attempts.load(std::memory_order_acquire), kOpsPerThread);
 }
 
 TEST(ExchangeConcurrencyTest, PlaceLimitParallelStressDoesNotProduceNegativeBalances)
 {
-    Exchange exchange;
-    const Market market = btc_usdt();
-    const Asset btc{"btc"};
-    const Asset usdt{"usdt"};
-
-    ASSERT_TRUE(exchange.register_market(market).has_value());
-
     constexpr int kBuyUsers = 4;
     constexpr int kSellUsers = 4;
     constexpr int kIterations = 1200;
     constexpr int kPrice = 100;
 
-    std::vector<UserId> buy_users;
-    std::vector<UserId> sell_users;
-    buy_users.reserve(kBuyUsers);
-    sell_users.reserve(kSellUsers);
-
-    for (int i = 0; i < kBuyUsers; ++i)
+    for (int repeat = 0; repeat < kScenarioRepeats; ++repeat)
     {
-        const auto user = exchange.create_user("stress-buy-" + std::to_string(i));
-        ASSERT_TRUE(user.has_value());
-        buy_users.push_back(*user);
-        ASSERT_TRUE(exchange.deposit(*user, usdt, 250000).has_value());
-    }
+        Exchange exchange;
+        const Market market = btc_usdt();
+        const Asset btc{"btc"};
+        const Asset usdt{"usdt"};
 
-    for (int i = 0; i < kSellUsers; ++i)
-    {
-        const auto user = exchange.create_user("stress-sell-" + std::to_string(i));
-        ASSERT_TRUE(user.has_value());
-        sell_users.push_back(*user);
-        ASSERT_TRUE(exchange.deposit(*user, btc, 3000).has_value());
-    }
+        ASSERT_TRUE(exchange.register_market(market).has_value());
 
-    std::atomic<bool> start{false};
-    std::atomic<bool> ok{true};
-    std::atomic<int> success_count{0};
-    std::vector<std::thread> threads;
-    threads.reserve(kBuyUsers + kSellUsers);
+        std::vector<UserId> buy_users;
+        std::vector<UserId> sell_users;
+        buy_users.reserve(kBuyUsers);
+        sell_users.reserve(kSellUsers);
 
-    for (const UserId user_id : buy_users)
-    {
-        threads.emplace_back([&exchange, &market, &start, &ok, &success_count, user_id]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
-            for (int i = 0; i < kIterations; ++i)
-            {
-                const auto result = exchange.place_limit_order(user_id, market, Side::Buy, kPrice, 1);
-                if (!result.has_value())
+        for (int i = 0; i < kBuyUsers; ++i)
+        {
+            const auto user = exchange.create_user("stress-buy-" + std::to_string(i));
+            ASSERT_TRUE(user.has_value());
+            buy_users.push_back(*user);
+            ASSERT_TRUE(exchange.deposit(*user, usdt, 250000).has_value());
+        }
+
+        for (int i = 0; i < kSellUsers; ++i)
+        {
+            const auto user = exchange.create_user("stress-sell-" + std::to_string(i));
+            ASSERT_TRUE(user.has_value());
+            sell_users.push_back(*user);
+            ASSERT_TRUE(exchange.deposit(*user, btc, 3000).has_value());
+        }
+
+        std::atomic<bool> ok{true};
+        std::atomic<int> success_count{0};
+        std::vector<std::thread> threads;
+        threads.reserve(kBuyUsers + kSellUsers);
+        ThreadStartGate start_gate{kBuyUsers + kSellUsers};
+        TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+
+        for (const UserId user_id : buy_users)
+        {
+            threads.emplace_back([&exchange, &market, &start_gate, &ok, &success_count, user_id]() {
+                start_gate.worker_ready_and_wait();
+                for (int i = 0; i < kIterations; ++i)
                 {
-                    ok.store(false, std::memory_order_release);
-                    break;
+                    const auto result = exchange.place_limit_order(user_id, market, Side::Buy, kPrice, 1);
+                    if (!result.has_value())
+                    {
+                        ok.store(false, std::memory_order_release);
+                        return;
+                    }
+                    success_count.fetch_add(1, std::memory_order_acq_rel);
                 }
-                success_count.fetch_add(1, std::memory_order_acq_rel);
-            }
-        });
-    }
+            });
+        }
 
-    for (const UserId user_id : sell_users)
-    {
-        threads.emplace_back([&exchange, &market, &start, &ok, &success_count, user_id]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
-            for (int i = 0; i < kIterations; ++i)
-            {
-                const auto result = exchange.place_limit_order(user_id, market, Side::Sell, kPrice, 1);
-                if (!result.has_value())
+        for (const UserId user_id : sell_users)
+        {
+            threads.emplace_back([&exchange, &market, &start_gate, &ok, &success_count, user_id]() {
+                start_gate.worker_ready_and_wait();
+                for (int i = 0; i < kIterations; ++i)
                 {
-                    ok.store(false, std::memory_order_release);
-                    break;
+                    const auto result = exchange.place_limit_order(user_id, market, Side::Sell, kPrice, 1);
+                    if (!result.has_value())
+                    {
+                        ok.store(false, std::memory_order_release);
+                        return;
+                    }
+                    success_count.fetch_add(1, std::memory_order_acq_rel);
                 }
-                success_count.fetch_add(1, std::memory_order_acq_rel);
-            }
-        });
+            });
+        }
+
+        start_gate.release_workers();
+        for (auto &thread : threads)
+        {
+            thread.join();
+        }
+
+        EXPECT_TRUE(ok.load(std::memory_order_acquire));
+        EXPECT_GT(success_count.load(std::memory_order_acquire), 0);
+
+        for (const UserId user_id : buy_users)
+        {
+            const auto free_quote = exchange.free_balance(user_id, usdt);
+            const auto reserved_quote = exchange.reserved_balance(user_id, usdt);
+            const auto free_base = exchange.free_balance(user_id, btc);
+            const auto reserved_base = exchange.reserved_balance(user_id, btc);
+            ASSERT_TRUE(free_quote.has_value());
+            ASSERT_TRUE(reserved_quote.has_value());
+            ASSERT_TRUE(free_base.has_value());
+            ASSERT_TRUE(reserved_base.has_value());
+            EXPECT_GE(*free_quote, 0);
+            EXPECT_GE(*reserved_quote, 0);
+            EXPECT_GE(*free_base, 0);
+            EXPECT_GE(*reserved_base, 0);
+        }
+
+        for (const UserId user_id : sell_users)
+        {
+            const auto free_quote = exchange.free_balance(user_id, usdt);
+            const auto reserved_quote = exchange.reserved_balance(user_id, usdt);
+            const auto free_base = exchange.free_balance(user_id, btc);
+            const auto reserved_base = exchange.reserved_balance(user_id, btc);
+            ASSERT_TRUE(free_quote.has_value());
+            ASSERT_TRUE(reserved_quote.has_value());
+            ASSERT_TRUE(free_base.has_value());
+            ASSERT_TRUE(reserved_base.has_value());
+            EXPECT_GE(*free_quote, 0);
+            EXPECT_GE(*reserved_quote, 0);
+            EXPECT_GE(*free_base, 0);
+            EXPECT_GE(*reserved_base, 0);
+        }
+
+        expect_no_orphan_orders(exchange, {market});
     }
-
-    start.store(true, std::memory_order_release);
-    for (auto &thread : threads)
-    {
-        thread.join();
-    }
-
-    EXPECT_TRUE(ok.load(std::memory_order_acquire));
-    EXPECT_GT(success_count.load(std::memory_order_acquire), 0);
-
-    for (const UserId user_id : buy_users)
-    {
-        const auto free_quote = exchange.free_balance(user_id, usdt);
-        const auto reserved_quote = exchange.reserved_balance(user_id, usdt);
-        const auto free_base = exchange.free_balance(user_id, btc);
-        const auto reserved_base = exchange.reserved_balance(user_id, btc);
-        ASSERT_TRUE(free_quote.has_value());
-        ASSERT_TRUE(reserved_quote.has_value());
-        ASSERT_TRUE(free_base.has_value());
-        ASSERT_TRUE(reserved_base.has_value());
-        EXPECT_GE(*free_quote, 0);
-        EXPECT_GE(*reserved_quote, 0);
-        EXPECT_GE(*free_base, 0);
-        EXPECT_GE(*reserved_base, 0);
-    }
-
-    for (const UserId user_id : sell_users)
-    {
-        const auto free_quote = exchange.free_balance(user_id, usdt);
-        const auto reserved_quote = exchange.reserved_balance(user_id, usdt);
-        const auto free_base = exchange.free_balance(user_id, btc);
-        const auto reserved_base = exchange.reserved_balance(user_id, btc);
-        ASSERT_TRUE(free_quote.has_value());
-        ASSERT_TRUE(reserved_quote.has_value());
-        ASSERT_TRUE(free_base.has_value());
-        ASSERT_TRUE(reserved_base.has_value());
-        EXPECT_GE(*free_quote, 0);
-        EXPECT_GE(*reserved_quote, 0);
-        EXPECT_GE(*free_base, 0);
-        EXPECT_GE(*reserved_base, 0);
-    }
-
-    expect_no_orphan_orders(exchange, {market});
 }
 
 TEST(ExchangeConcurrencyTest, MarketOrderAndCancelMixedPreservesReserveInvariants)
 {
-    Exchange exchange;
-    const Market market = btc_usdt();
-    const Asset btc{"btc"};
-    const Asset usdt{"usdt"};
-
-    ASSERT_TRUE(exchange.register_market(market).has_value());
-
-    const auto seller_result = exchange.create_user("seller-mixed");
-    const auto buyer_result = exchange.create_user("buyer-mixed");
-    ASSERT_TRUE(seller_result.has_value());
-    ASSERT_TRUE(buyer_result.has_value());
-    const UserId seller = *seller_result;
-    const UserId buyer = *buyer_result;
-
     constexpr int kInitialOrders = 2000;
     constexpr int kMarketOps = 2000;
-    const std::int64_t initial_seller_btc = kInitialOrders;
-    const std::int64_t initial_buyer_usdt = kMarketOps;
-
-    ASSERT_TRUE(exchange.deposit(seller, btc, initial_seller_btc).has_value());
-    ASSERT_TRUE(exchange.deposit(buyer, usdt, initial_buyer_usdt).has_value());
-
-    std::vector<OrderId> order_ids;
-    order_ids.reserve(kInitialOrders);
-    for (int i = 0; i < kInitialOrders; ++i)
+    for (int repeat = 0; repeat < kScenarioRepeats; ++repeat)
     {
-        const auto place = exchange.place_limit_order(seller, market, Side::Sell, 1, 1);
-        ASSERT_TRUE(place.has_value());
-        order_ids.push_back(place->order_id);
+        Exchange exchange;
+        const Market market = btc_usdt();
+        const Asset btc{"btc"};
+        const Asset usdt{"usdt"};
+        const std::int64_t initial_seller_btc = kInitialOrders;
+        const std::int64_t initial_buyer_usdt = kMarketOps;
+
+        ASSERT_TRUE(exchange.register_market(market).has_value());
+
+        const auto seller_result = exchange.create_user("seller-mixed");
+        const auto buyer_result = exchange.create_user("buyer-mixed");
+        ASSERT_TRUE(seller_result.has_value());
+        ASSERT_TRUE(buyer_result.has_value());
+        const UserId seller = *seller_result;
+        const UserId buyer = *buyer_result;
+
+        ASSERT_TRUE(exchange.deposit(seller, btc, initial_seller_btc).has_value());
+        ASSERT_TRUE(exchange.deposit(buyer, usdt, initial_buyer_usdt).has_value());
+
+        std::vector<OrderId> order_ids;
+        order_ids.reserve(kInitialOrders);
+        for (int i = 0; i < kInitialOrders; ++i)
+        {
+            const auto place = exchange.place_limit_order(seller, market, Side::Sell, 1, 1);
+            ASSERT_TRUE(place.has_value());
+            order_ids.push_back(place->order_id);
+        }
+
+        std::atomic<bool> ok{true};
+        ThreadStartGate start_gate{2};
+        TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+
+        std::thread market_thread([&]() {
+            start_gate.worker_ready_and_wait();
+            for (int i = 0; i < kMarketOps; ++i)
+            {
+                const auto result = exchange.execute_market_order(buyer, market, Side::Buy, 1);
+                if (!result.has_value())
+                {
+                    ok.store(false, std::memory_order_release);
+                    return;
+                }
+            }
+        });
+
+        std::thread cancel_thread([&]() {
+            start_gate.worker_ready_and_wait();
+            for (const OrderId id : order_ids)
+            {
+                const auto cancel = exchange.cancel_order(seller, id);
+                if (!cancel.has_value() && cancel.error() != CancelOrderError::OrderNotFound)
+                {
+                    ok.store(false, std::memory_order_release);
+                    return;
+                }
+            }
+        });
+
+        start_gate.release_workers();
+        market_thread.join();
+        cancel_thread.join();
+
+        ASSERT_TRUE(ok.load(std::memory_order_acquire));
+
+        const auto seller_btc_free = exchange.free_balance(seller, btc);
+        const auto seller_btc_reserved = exchange.reserved_balance(seller, btc);
+        const auto seller_usdt_free = exchange.free_balance(seller, usdt);
+        const auto buyer_btc_free = exchange.free_balance(buyer, btc);
+        const auto buyer_usdt_free = exchange.free_balance(buyer, usdt);
+        const auto buyer_usdt_reserved = exchange.reserved_balance(buyer, usdt);
+        ASSERT_TRUE(seller_btc_free.has_value());
+        ASSERT_TRUE(seller_btc_reserved.has_value());
+        ASSERT_TRUE(seller_usdt_free.has_value());
+        ASSERT_TRUE(buyer_btc_free.has_value());
+        ASSERT_TRUE(buyer_usdt_free.has_value());
+        ASSERT_TRUE(buyer_usdt_reserved.has_value());
+
+        EXPECT_GE(*seller_btc_free, 0);
+        EXPECT_GE(*seller_btc_reserved, 0);
+        EXPECT_GE(*seller_usdt_free, 0);
+        EXPECT_GE(*buyer_btc_free, 0);
+        EXPECT_GE(*buyer_usdt_free, 0);
+        EXPECT_GE(*buyer_usdt_reserved, 0);
+
+        // No BTC/USDT should disappear between the two users.
+        EXPECT_EQ(*seller_btc_free + *seller_btc_reserved + *buyer_btc_free, initial_seller_btc);
+        EXPECT_EQ(*seller_usdt_free + *buyer_usdt_free + *buyer_usdt_reserved, initial_buyer_usdt);
     }
-
-    std::atomic<bool> start{false};
-    std::atomic<bool> ok{true};
-
-    std::thread market_thread([&]() {
-        while (!start.load(std::memory_order_acquire))
-        {
-            std::this_thread::yield();
-        }
-        for (int i = 0; i < kMarketOps; ++i)
-        {
-            const auto result = exchange.execute_market_order(buyer, market, Side::Buy, 1);
-            if (!result.has_value())
-            {
-                ok.store(false, std::memory_order_release);
-                break;
-            }
-        }
-    });
-
-    std::thread cancel_thread([&]() {
-        while (!start.load(std::memory_order_acquire))
-        {
-            std::this_thread::yield();
-        }
-        for (const OrderId id : order_ids)
-        {
-            const auto cancel = exchange.cancel_order(seller, id);
-            if (!cancel.has_value() && cancel.error() != CancelOrderError::OrderNotFound)
-            {
-                ok.store(false, std::memory_order_release);
-                break;
-            }
-        }
-    });
-
-    start.store(true, std::memory_order_release);
-    market_thread.join();
-    cancel_thread.join();
-
-    ASSERT_TRUE(ok.load(std::memory_order_acquire));
-
-    const auto seller_btc_free = exchange.free_balance(seller, btc);
-    const auto seller_btc_reserved = exchange.reserved_balance(seller, btc);
-    const auto seller_usdt_free = exchange.free_balance(seller, usdt);
-    const auto buyer_btc_free = exchange.free_balance(buyer, btc);
-    const auto buyer_usdt_free = exchange.free_balance(buyer, usdt);
-    const auto buyer_usdt_reserved = exchange.reserved_balance(buyer, usdt);
-    ASSERT_TRUE(seller_btc_free.has_value());
-    ASSERT_TRUE(seller_btc_reserved.has_value());
-    ASSERT_TRUE(seller_usdt_free.has_value());
-    ASSERT_TRUE(buyer_btc_free.has_value());
-    ASSERT_TRUE(buyer_usdt_free.has_value());
-    ASSERT_TRUE(buyer_usdt_reserved.has_value());
-
-    EXPECT_GE(*seller_btc_free, 0);
-    EXPECT_GE(*seller_btc_reserved, 0);
-    EXPECT_GE(*seller_usdt_free, 0);
-    EXPECT_GE(*buyer_btc_free, 0);
-    EXPECT_GE(*buyer_usdt_free, 0);
-    EXPECT_GE(*buyer_usdt_reserved, 0);
-
-    // No BTC/USDT should disappear between the two users.
-    EXPECT_EQ(*seller_btc_free + *seller_btc_reserved + *buyer_btc_free, initial_seller_btc);
-    EXPECT_EQ(*seller_usdt_free + *buyer_usdt_free + *buyer_usdt_reserved, initial_buyer_usdt);
 }
 
 TEST(ExchangeConcurrencyTest, PlaceLimitParallelOnTwoMarketsKeepsBalancesNonNegative)
 {
-    Exchange exchange;
-    const Market btc_usdt_market = Market{Asset{"btc"}, Asset{"usdt"}};
-    const Market eth_usdt_market = Market{Asset{"eth"}, Asset{"usdt"}};
-    const Asset btc{"btc"};
-    const Asset eth{"eth"};
-    const Asset usdt{"usdt"};
-
-    ASSERT_TRUE(exchange.register_market(btc_usdt_market).has_value());
-    ASSERT_TRUE(exchange.register_market(eth_usdt_market).has_value());
-
-    const auto btc_buyer_result = exchange.create_user("btc-buyer-parallel");
-    const auto btc_seller_result = exchange.create_user("btc-seller-parallel");
-    const auto eth_buyer_result = exchange.create_user("eth-buyer-parallel");
-    const auto eth_seller_result = exchange.create_user("eth-seller-parallel");
-    ASSERT_TRUE(btc_buyer_result.has_value());
-    ASSERT_TRUE(btc_seller_result.has_value());
-    ASSERT_TRUE(eth_buyer_result.has_value());
-    ASSERT_TRUE(eth_seller_result.has_value());
-
-    const UserId btc_buyer = *btc_buyer_result;
-    const UserId btc_seller = *btc_seller_result;
-    const UserId eth_buyer = *eth_buyer_result;
-    const UserId eth_seller = *eth_seller_result;
-
     constexpr int kThreadsPerMarket = 4;
     constexpr int kOpsPerThread = 600;
 
-    ASSERT_TRUE(exchange.deposit(btc_buyer, usdt, 1000000).has_value());
-    ASSERT_TRUE(exchange.deposit(btc_seller, btc, 1000000).has_value());
-    ASSERT_TRUE(exchange.deposit(eth_buyer, usdt, 1000000).has_value());
-    ASSERT_TRUE(exchange.deposit(eth_seller, eth, 1000000).has_value());
-
-    std::atomic<bool> start{false};
-    std::atomic<bool> ok{true};
-    std::vector<std::thread> threads;
-    threads.reserve(kThreadsPerMarket * 2);
-
-    for (int i = 0; i < kThreadsPerMarket; ++i)
+    for (int repeat = 0; repeat < kScenarioRepeats; ++repeat)
     {
-        threads.emplace_back([&]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
-            for (int j = 0; j < kOpsPerThread; ++j)
-            {
-                const auto buy = exchange.place_limit_order(btc_buyer, btc_usdt_market, Side::Buy, 1, 1);
-                if (!buy.has_value())
+        Exchange exchange;
+        const Market btc_usdt_market = Market{Asset{"btc"}, Asset{"usdt"}};
+        const Market eth_usdt_market = Market{Asset{"eth"}, Asset{"usdt"}};
+        const Asset btc{"btc"};
+        const Asset eth{"eth"};
+        const Asset usdt{"usdt"};
+
+        ASSERT_TRUE(exchange.register_market(btc_usdt_market).has_value());
+        ASSERT_TRUE(exchange.register_market(eth_usdt_market).has_value());
+
+        const auto btc_buyer_result = exchange.create_user("btc-buyer-parallel");
+        const auto btc_seller_result = exchange.create_user("btc-seller-parallel");
+        const auto eth_buyer_result = exchange.create_user("eth-buyer-parallel");
+        const auto eth_seller_result = exchange.create_user("eth-seller-parallel");
+        ASSERT_TRUE(btc_buyer_result.has_value());
+        ASSERT_TRUE(btc_seller_result.has_value());
+        ASSERT_TRUE(eth_buyer_result.has_value());
+        ASSERT_TRUE(eth_seller_result.has_value());
+
+        const UserId btc_buyer = *btc_buyer_result;
+        const UserId btc_seller = *btc_seller_result;
+        const UserId eth_buyer = *eth_buyer_result;
+        const UserId eth_seller = *eth_seller_result;
+
+        ASSERT_TRUE(exchange.deposit(btc_buyer, usdt, 1000000).has_value());
+        ASSERT_TRUE(exchange.deposit(btc_seller, btc, 1000000).has_value());
+        ASSERT_TRUE(exchange.deposit(eth_buyer, usdt, 1000000).has_value());
+        ASSERT_TRUE(exchange.deposit(eth_seller, eth, 1000000).has_value());
+
+        std::atomic<bool> ok{true};
+        std::vector<std::thread> threads;
+        threads.reserve(kThreadsPerMarket * 2);
+        ThreadStartGate start_gate{kThreadsPerMarket * 2};
+        TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+
+        for (int i = 0; i < kThreadsPerMarket; ++i)
+        {
+            threads.emplace_back([&]() {
+                start_gate.worker_ready_and_wait();
+                for (int j = 0; j < kOpsPerThread; ++j)
                 {
-                    ok.store(false, std::memory_order_release);
-                    return;
+                    const auto buy = exchange.place_limit_order(btc_buyer, btc_usdt_market, Side::Buy, 1, 1);
+                    if (!buy.has_value())
+                    {
+                        ok.store(false, std::memory_order_release);
+                        return;
+                    }
+                    const auto sell = exchange.place_limit_order(btc_seller, btc_usdt_market, Side::Sell, 1, 1);
+                    if (!sell.has_value())
+                    {
+                        ok.store(false, std::memory_order_release);
+                        return;
+                    }
                 }
-                const auto sell = exchange.place_limit_order(btc_seller, btc_usdt_market, Side::Sell, 1, 1);
-                if (!sell.has_value())
+            });
+        }
+
+        for (int i = 0; i < kThreadsPerMarket; ++i)
+        {
+            threads.emplace_back([&]() {
+                start_gate.worker_ready_and_wait();
+                for (int j = 0; j < kOpsPerThread; ++j)
                 {
-                    ok.store(false, std::memory_order_release);
-                    return;
+                    const auto buy = exchange.place_limit_order(eth_buyer, eth_usdt_market, Side::Buy, 1, 1);
+                    if (!buy.has_value())
+                    {
+                        ok.store(false, std::memory_order_release);
+                        return;
+                    }
+                    const auto sell = exchange.place_limit_order(eth_seller, eth_usdt_market, Side::Sell, 1, 1);
+                    if (!sell.has_value())
+                    {
+                        ok.store(false, std::memory_order_release);
+                        return;
+                    }
                 }
-            }
-        });
+            });
+        }
+
+        start_gate.release_workers();
+        for (auto &thread : threads)
+        {
+            thread.join();
+        }
+
+        ASSERT_TRUE(ok.load(std::memory_order_acquire));
+
+        const auto btc_buyer_btc_free = exchange.free_balance(btc_buyer, btc);
+        const auto btc_buyer_usdt_free = exchange.free_balance(btc_buyer, usdt);
+        const auto btc_buyer_usdt_reserved = exchange.reserved_balance(btc_buyer, usdt);
+        const auto btc_seller_btc_free = exchange.free_balance(btc_seller, btc);
+        const auto btc_seller_btc_reserved = exchange.reserved_balance(btc_seller, btc);
+        const auto btc_seller_usdt_free = exchange.free_balance(btc_seller, usdt);
+
+        const auto eth_buyer_eth_free = exchange.free_balance(eth_buyer, eth);
+        const auto eth_buyer_usdt_free = exchange.free_balance(eth_buyer, usdt);
+        const auto eth_buyer_usdt_reserved = exchange.reserved_balance(eth_buyer, usdt);
+        const auto eth_seller_eth_free = exchange.free_balance(eth_seller, eth);
+        const auto eth_seller_eth_reserved = exchange.reserved_balance(eth_seller, eth);
+        const auto eth_seller_usdt_free = exchange.free_balance(eth_seller, usdt);
+
+        ASSERT_TRUE(btc_buyer_btc_free.has_value());
+        ASSERT_TRUE(btc_buyer_usdt_free.has_value());
+        ASSERT_TRUE(btc_buyer_usdt_reserved.has_value());
+        ASSERT_TRUE(btc_seller_btc_free.has_value());
+        ASSERT_TRUE(btc_seller_btc_reserved.has_value());
+        ASSERT_TRUE(btc_seller_usdt_free.has_value());
+        ASSERT_TRUE(eth_buyer_eth_free.has_value());
+        ASSERT_TRUE(eth_buyer_usdt_free.has_value());
+        ASSERT_TRUE(eth_buyer_usdt_reserved.has_value());
+        ASSERT_TRUE(eth_seller_eth_free.has_value());
+        ASSERT_TRUE(eth_seller_eth_reserved.has_value());
+        ASSERT_TRUE(eth_seller_usdt_free.has_value());
+
+        EXPECT_GE(*btc_buyer_btc_free, 0);
+        EXPECT_GE(*btc_buyer_usdt_free, 0);
+        EXPECT_GE(*btc_buyer_usdt_reserved, 0);
+        EXPECT_GE(*btc_seller_btc_free, 0);
+        EXPECT_GE(*btc_seller_btc_reserved, 0);
+        EXPECT_GE(*btc_seller_usdt_free, 0);
+        EXPECT_GE(*eth_buyer_eth_free, 0);
+        EXPECT_GE(*eth_buyer_usdt_free, 0);
+        EXPECT_GE(*eth_buyer_usdt_reserved, 0);
+        EXPECT_GE(*eth_seller_eth_free, 0);
+        EXPECT_GE(*eth_seller_eth_reserved, 0);
+        EXPECT_GE(*eth_seller_usdt_free, 0);
+
+        expect_no_orphan_orders(exchange, {btc_usdt_market, eth_usdt_market});
     }
-
-    for (int i = 0; i < kThreadsPerMarket; ++i)
-    {
-        threads.emplace_back([&]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
-            for (int j = 0; j < kOpsPerThread; ++j)
-            {
-                const auto buy = exchange.place_limit_order(eth_buyer, eth_usdt_market, Side::Buy, 1, 1);
-                if (!buy.has_value())
-                {
-                    ok.store(false, std::memory_order_release);
-                    return;
-                }
-                const auto sell = exchange.place_limit_order(eth_seller, eth_usdt_market, Side::Sell, 1, 1);
-                if (!sell.has_value())
-                {
-                    ok.store(false, std::memory_order_release);
-                    return;
-                }
-            }
-        });
-    }
-
-    start.store(true, std::memory_order_release);
-    for (auto &thread : threads)
-    {
-        thread.join();
-    }
-
-    ASSERT_TRUE(ok.load(std::memory_order_acquire));
-
-    const auto btc_buyer_btc_free = exchange.free_balance(btc_buyer, btc);
-    const auto btc_buyer_usdt_free = exchange.free_balance(btc_buyer, usdt);
-    const auto btc_buyer_usdt_reserved = exchange.reserved_balance(btc_buyer, usdt);
-    const auto btc_seller_btc_free = exchange.free_balance(btc_seller, btc);
-    const auto btc_seller_btc_reserved = exchange.reserved_balance(btc_seller, btc);
-    const auto btc_seller_usdt_free = exchange.free_balance(btc_seller, usdt);
-
-    const auto eth_buyer_eth_free = exchange.free_balance(eth_buyer, eth);
-    const auto eth_buyer_usdt_free = exchange.free_balance(eth_buyer, usdt);
-    const auto eth_buyer_usdt_reserved = exchange.reserved_balance(eth_buyer, usdt);
-    const auto eth_seller_eth_free = exchange.free_balance(eth_seller, eth);
-    const auto eth_seller_eth_reserved = exchange.reserved_balance(eth_seller, eth);
-    const auto eth_seller_usdt_free = exchange.free_balance(eth_seller, usdt);
-
-    ASSERT_TRUE(btc_buyer_btc_free.has_value());
-    ASSERT_TRUE(btc_buyer_usdt_free.has_value());
-    ASSERT_TRUE(btc_buyer_usdt_reserved.has_value());
-    ASSERT_TRUE(btc_seller_btc_free.has_value());
-    ASSERT_TRUE(btc_seller_btc_reserved.has_value());
-    ASSERT_TRUE(btc_seller_usdt_free.has_value());
-    ASSERT_TRUE(eth_buyer_eth_free.has_value());
-    ASSERT_TRUE(eth_buyer_usdt_free.has_value());
-    ASSERT_TRUE(eth_buyer_usdt_reserved.has_value());
-    ASSERT_TRUE(eth_seller_eth_free.has_value());
-    ASSERT_TRUE(eth_seller_eth_reserved.has_value());
-    ASSERT_TRUE(eth_seller_usdt_free.has_value());
-
-    EXPECT_GE(*btc_buyer_btc_free, 0);
-    EXPECT_GE(*btc_buyer_usdt_free, 0);
-    EXPECT_GE(*btc_buyer_usdt_reserved, 0);
-    EXPECT_GE(*btc_seller_btc_free, 0);
-    EXPECT_GE(*btc_seller_btc_reserved, 0);
-    EXPECT_GE(*btc_seller_usdt_free, 0);
-    EXPECT_GE(*eth_buyer_eth_free, 0);
-    EXPECT_GE(*eth_buyer_usdt_free, 0);
-    EXPECT_GE(*eth_buyer_usdt_reserved, 0);
-    EXPECT_GE(*eth_seller_eth_free, 0);
-    EXPECT_GE(*eth_seller_eth_reserved, 0);
-    EXPECT_GE(*eth_seller_usdt_free, 0);
-
-    expect_no_orphan_orders(exchange, {btc_usdt_market, eth_usdt_market});
 }
 
 TEST(ExchangeConcurrencyTest, CancelDuringHighInflowDoesNotDeadlockAndRestoresSellerReservation)
 {
-    Exchange exchange;
-    const Market market = btc_usdt();
-    const Asset btc{"btc"};
-
-    ASSERT_TRUE(exchange.register_market(market).has_value());
-
-    const auto seller_result = exchange.create_user("seller-inflow");
-    ASSERT_TRUE(seller_result.has_value());
-    const UserId seller = *seller_result;
-
     constexpr int kProducerThreads = 4;
     constexpr int kOrdersPerProducer = 500;
     constexpr int kTotalOrders = kProducerThreads * kOrdersPerProducer;
-    ASSERT_TRUE(exchange.deposit(seller, btc, kTotalOrders + 100).has_value());
-
-    std::atomic<bool> start{false};
-    std::atomic<bool> producers_done{false};
-    std::atomic<bool> ok{true};
-    std::vector<OrderId> order_ids;
-    order_ids.reserve(kTotalOrders);
-    std::mutex order_ids_mu;
-    std::size_t next_cancel_index = 0;
-
-    TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
-
-    std::vector<std::thread> producers;
-    producers.reserve(kProducerThreads);
-    for (int t = 0; t < kProducerThreads; ++t)
+    for (int repeat = 0; repeat < kScenarioRepeats; ++repeat)
     {
-        producers.emplace_back([&]() {
-            while (!start.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
+        Exchange exchange;
+        const Market market = btc_usdt();
+        const Asset btc{"btc"};
 
-            for (int i = 0; i < kOrdersPerProducer; ++i)
+        ASSERT_TRUE(exchange.register_market(market).has_value());
+
+        const auto seller_result = exchange.create_user("seller-inflow");
+        ASSERT_TRUE(seller_result.has_value());
+        const UserId seller = *seller_result;
+        ASSERT_TRUE(exchange.deposit(seller, btc, kTotalOrders + 100).has_value());
+
+        std::atomic<bool> producers_done{false};
+        std::atomic<bool> ok{true};
+        std::vector<OrderId> order_ids;
+        order_ids.reserve(kTotalOrders);
+        std::mutex order_ids_mu;
+        ThreadStartGate start_gate{kProducerThreads + 1};
+        TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+
+        std::vector<std::thread> producers;
+        producers.reserve(kProducerThreads);
+        for (int t = 0; t < kProducerThreads; ++t)
+        {
+            producers.emplace_back([&]() {
+                start_gate.worker_ready_and_wait();
+
+                for (int i = 0; i < kOrdersPerProducer; ++i)
+                {
+                    const auto place = exchange.place_limit_order(seller, market, Side::Sell, 1, 1);
+                    if (!place.has_value())
+                    {
+                        ok.store(false, std::memory_order_release);
+                        return;
+                    }
+
+                    std::lock_guard lock(order_ids_mu);
+                    order_ids.push_back(place->order_id);
+                }
+            });
+        }
+
+        std::thread cancel_thread([&]() {
+            start_gate.worker_ready_and_wait();
+            auto rng = make_rng(0x1234ABCDU, static_cast<std::uint32_t>(repeat + 1));
+
+            while (true)
             {
-                const auto place = exchange.place_limit_order(seller, market, Side::Sell, 1, 1);
-                if (!place.has_value())
+                bool has_id = false;
+                OrderId order_id;
+                {
+                    std::lock_guard lock(order_ids_mu);
+                    if (!order_ids.empty())
+                    {
+                        std::uniform_int_distribution<std::size_t> idx_dist(0, order_ids.size() - 1);
+                        const std::size_t idx = idx_dist(rng);
+                        order_id = order_ids[idx];
+                        order_ids[idx] = order_ids.back();
+                        order_ids.pop_back();
+                        has_id = true;
+                    }
+                    else if (producers_done.load(std::memory_order_acquire))
+                    {
+                        return;
+                    }
+                }
+
+                if (!has_id)
+                {
+                    std::this_thread::yield();
+                    continue;
+                }
+
+                const auto cancel = exchange.cancel_order(seller, order_id);
+                if (!cancel.has_value() && cancel.error() != CancelOrderError::OrderNotFound)
                 {
                     ok.store(false, std::memory_order_release);
                     return;
                 }
-
-                std::lock_guard lock(order_ids_mu);
-                order_ids.push_back(place->order_id);
             }
         });
-    }
 
-    std::thread cancel_thread([&]() {
-        while (!start.load(std::memory_order_acquire))
+        start_gate.release_workers();
+        for (auto &producer : producers)
         {
-            std::this_thread::yield();
+            producer.join();
         }
+        producers_done.store(true, std::memory_order_release);
+        cancel_thread.join();
 
-        while (true)
-        {
-            bool has_id = false;
-            OrderId order_id;
-            {
-                std::lock_guard lock(order_ids_mu);
-                if (next_cancel_index < order_ids.size())
-                {
-                    order_id = order_ids[next_cancel_index];
-                    ++next_cancel_index;
-                    has_id = true;
-                }
-                else if (producers_done.load(std::memory_order_acquire))
-                {
-                    return;
-                }
-            }
+        ASSERT_TRUE(ok.load(std::memory_order_acquire));
 
-            if (!has_id)
-            {
-                std::this_thread::yield();
-                continue;
-            }
+        const auto seller_btc_free = exchange.free_balance(seller, btc);
+        const auto seller_btc_reserved = exchange.reserved_balance(seller, btc);
+        ASSERT_TRUE(seller_btc_free.has_value());
+        ASSERT_TRUE(seller_btc_reserved.has_value());
+        EXPECT_GE(*seller_btc_free, 0);
+        EXPECT_GE(*seller_btc_reserved, 0);
+        EXPECT_EQ(*seller_btc_reserved, 0);
 
-            const auto cancel = exchange.cancel_order(seller, order_id);
-            if (!cancel.has_value() && cancel.error() != CancelOrderError::OrderNotFound)
-            {
-                ok.store(false, std::memory_order_release);
-                return;
-            }
-        }
-    });
-
-    start.store(true, std::memory_order_release);
-    for (auto &producer : producers)
-    {
-        producer.join();
+        expect_no_orphan_orders(exchange, {market});
     }
-    producers_done.store(true, std::memory_order_release);
-    cancel_thread.join();
-
-    ASSERT_TRUE(ok.load(std::memory_order_acquire));
-
-    const auto seller_btc_free = exchange.free_balance(seller, btc);
-    const auto seller_btc_reserved = exchange.reserved_balance(seller, btc);
-    ASSERT_TRUE(seller_btc_free.has_value());
-    ASSERT_TRUE(seller_btc_reserved.has_value());
-    EXPECT_GE(*seller_btc_free, 0);
-    EXPECT_GE(*seller_btc_reserved, 0);
-    EXPECT_EQ(*seller_btc_reserved, 0);
-
-    expect_no_orphan_orders(exchange, {market});
 }
 
 TEST(ExchangeConcurrencyTest, SharedUsersAndDisjointUsersContentionScenariosStayConsistent)
 {
     const Asset usdt{"usdt"};
 
-    const auto run_scenario = [&](bool shared_users) {
+    const auto run_scenario = [&](bool shared_users, int repeat) {
         Exchange exchange;
         constexpr int kThreads = 8;
         constexpr int kIterations = 1200;
@@ -904,37 +924,42 @@ TEST(ExchangeConcurrencyTest, SharedUsersAndDisjointUsersContentionScenariosStay
             ASSERT_TRUE(exchange.deposit(user_id, usdt, kInitialBalance).has_value());
         }
 
-        std::atomic<bool> start{false};
         std::atomic<bool> ok{true};
         std::vector<std::thread> threads;
         threads.reserve(kThreads);
+        ThreadStartGate start_gate{kThreads};
+        TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
 
         for (int t = 0; t < kThreads; ++t)
         {
             const UserId user_id = shared_users ? users[static_cast<std::size_t>(t % users.size())] : users[static_cast<std::size_t>(t)];
-            threads.emplace_back([&exchange, &start, &ok, user_id, usdt]() {
-                while (!start.load(std::memory_order_acquire))
-                {
-                    std::this_thread::yield();
-                }
+            threads.emplace_back([&exchange, &start_gate, &ok, user_id, usdt, repeat, t, shared_users]() {
+                start_gate.worker_ready_and_wait();
+                auto rng = make_rng(shared_users ? 0xA11CEU : 0xFACE00U, static_cast<std::uint32_t>(repeat * 100 + t + 1));
+                std::uniform_int_distribution<int> amount_dist(1, 3);
+                std::uniform_int_distribution<int> reserve_dist(1, 2);
+
                 for (int i = 0; i < kIterations; ++i)
                 {
-                    if (!exchange.deposit(user_id, usdt, 2).has_value())
+                    const int amount = amount_dist(rng);
+                    const int reserve_amount = reserve_dist(rng);
+
+                    if (!exchange.deposit(user_id, usdt, amount).has_value())
                     {
                         ok.store(false, std::memory_order_release);
                         return;
                     }
-                    if (!exchange.reserve(user_id, usdt, 1).has_value())
+                    if (!exchange.reserve(user_id, usdt, reserve_amount).has_value())
                     {
                         ok.store(false, std::memory_order_release);
                         return;
                     }
-                    if (!exchange.release(user_id, usdt, 1).has_value())
+                    if (!exchange.release(user_id, usdt, reserve_amount).has_value())
                     {
                         ok.store(false, std::memory_order_release);
                         return;
                     }
-                    if (!exchange.withdraw(user_id, usdt, 2).has_value())
+                    if (!exchange.withdraw(user_id, usdt, amount).has_value())
                     {
                         ok.store(false, std::memory_order_release);
                         return;
@@ -943,7 +968,7 @@ TEST(ExchangeConcurrencyTest, SharedUsersAndDisjointUsersContentionScenariosStay
             });
         }
 
-        start.store(true, std::memory_order_release);
+        start_gate.release_workers();
         for (auto &thread : threads)
         {
             thread.join();
@@ -961,101 +986,120 @@ TEST(ExchangeConcurrencyTest, SharedUsersAndDisjointUsersContentionScenariosStay
         }
     };
 
-    run_scenario(true);
-    run_scenario(false);
+    for (int repeat = 0; repeat < kScenarioRepeats; ++repeat)
+    {
+        run_scenario(true, repeat);
+        run_scenario(false, repeat);
+    }
 }
 
 TEST(ExchangeConcurrencyTest, HighTrafficOnBtcUsdtDoesNotBreakEthUsdtFlow)
 {
-    Exchange exchange;
-    const Market btc_usdt_market = Market{Asset{"btc"}, Asset{"usdt"}};
-    const Market eth_usdt_market = Market{Asset{"eth"}, Asset{"usdt"}};
-    const Asset btc{"btc"};
-    const Asset eth{"eth"};
-    const Asset usdt{"usdt"};
-
-    ASSERT_TRUE(exchange.register_market(btc_usdt_market).has_value());
-    ASSERT_TRUE(exchange.register_market(eth_usdt_market).has_value());
-
-    const auto btc_seller_result = exchange.create_user("btc-seller-iso");
-    const auto btc_buyer_result = exchange.create_user("btc-buyer-iso");
-    const auto eth_seller_result = exchange.create_user("eth-seller-iso");
-    const auto eth_buyer_result = exchange.create_user("eth-buyer-iso");
-    ASSERT_TRUE(btc_seller_result.has_value());
-    ASSERT_TRUE(btc_buyer_result.has_value());
-    ASSERT_TRUE(eth_seller_result.has_value());
-    ASSERT_TRUE(eth_buyer_result.has_value());
-
-    const UserId btc_seller = *btc_seller_result;
-    const UserId btc_buyer = *btc_buyer_result;
-    const UserId eth_seller = *eth_seller_result;
-    const UserId eth_buyer = *eth_buyer_result;
-
     constexpr int kBtcOps = 1200;
     constexpr int kEthOrders = 1200;
 
-    ASSERT_TRUE(exchange.deposit(btc_seller, btc, kBtcOps + 100).has_value());
-    ASSERT_TRUE(exchange.deposit(btc_buyer, usdt, kBtcOps + 100).has_value());
-    ASSERT_TRUE(exchange.deposit(eth_seller, eth, kEthOrders).has_value());
-    ASSERT_TRUE(exchange.deposit(eth_buyer, usdt, kEthOrders).has_value());
-
-    for (int i = 0; i < kEthOrders; ++i)
+    for (int repeat = 0; repeat < kScenarioRepeats; ++repeat)
     {
-        const auto place = exchange.place_limit_order(eth_seller, eth_usdt_market, Side::Sell, 1, 1);
-        ASSERT_TRUE(place.has_value());
-    }
+        Exchange exchange;
+        const Market btc_usdt_market = Market{Asset{"btc"}, Asset{"usdt"}};
+        const Market eth_usdt_market = Market{Asset{"eth"}, Asset{"usdt"}};
+        const Asset btc{"btc"};
+        const Asset eth{"eth"};
+        const Asset usdt{"usdt"};
 
-    std::atomic<bool> btc_ok{true};
-    TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+        ASSERT_TRUE(exchange.register_market(btc_usdt_market).has_value());
+        ASSERT_TRUE(exchange.register_market(eth_usdt_market).has_value());
 
-    std::thread btc_traffic([&]() {
-        for (int i = 0; i < kBtcOps; ++i)
+        const auto btc_seller_result = exchange.create_user("btc-seller-iso");
+        const auto btc_buyer_result = exchange.create_user("btc-buyer-iso");
+        const auto eth_seller_result = exchange.create_user("eth-seller-iso");
+        const auto eth_buyer_result = exchange.create_user("eth-buyer-iso");
+        ASSERT_TRUE(btc_seller_result.has_value());
+        ASSERT_TRUE(btc_buyer_result.has_value());
+        ASSERT_TRUE(eth_seller_result.has_value());
+        ASSERT_TRUE(eth_buyer_result.has_value());
+
+        const UserId btc_seller = *btc_seller_result;
+        const UserId btc_buyer = *btc_buyer_result;
+        const UserId eth_seller = *eth_seller_result;
+        const UserId eth_buyer = *eth_buyer_result;
+
+        ASSERT_TRUE(exchange.deposit(btc_seller, btc, kBtcOps + 100).has_value());
+        ASSERT_TRUE(exchange.deposit(btc_buyer, usdt, kBtcOps + 100).has_value());
+        ASSERT_TRUE(exchange.deposit(eth_seller, eth, kEthOrders).has_value());
+        ASSERT_TRUE(exchange.deposit(eth_buyer, usdt, kEthOrders).has_value());
+
+        for (int i = 0; i < kEthOrders; ++i)
         {
-            const auto place = exchange.place_limit_order(btc_seller, btc_usdt_market, Side::Sell, 1, 1);
-            if (!place.has_value())
-            {
-                btc_ok.store(false, std::memory_order_release);
-                return;
-            }
-
-            const auto buy = exchange.execute_market_order(btc_buyer, btc_usdt_market, Side::Buy, 1);
-            if (!buy.has_value())
-            {
-                btc_ok.store(false, std::memory_order_release);
-                return;
-            }
+            const auto place = exchange.place_limit_order(eth_seller, eth_usdt_market, Side::Sell, 1, 1);
+            ASSERT_TRUE(place.has_value());
         }
-    });
 
-    for (int i = 0; i < kEthOrders; ++i)
-    {
-        const auto buy = exchange.execute_market_order(eth_buyer, eth_usdt_market, Side::Buy, 1);
-        ASSERT_TRUE(buy.has_value());
+        std::atomic<bool> btc_ok{true};
+        std::atomic<bool> eth_ok{true};
+        ThreadStartGate start_gate{2};
+        TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+
+        std::thread btc_traffic([&]() {
+            start_gate.worker_ready_and_wait();
+            for (int i = 0; i < kBtcOps; ++i)
+            {
+                const auto place = exchange.place_limit_order(btc_seller, btc_usdt_market, Side::Sell, 1, 1);
+                if (!place.has_value())
+                {
+                    btc_ok.store(false, std::memory_order_release);
+                    return;
+                }
+
+                const auto buy = exchange.execute_market_order(btc_buyer, btc_usdt_market, Side::Buy, 1);
+                if (!buy.has_value())
+                {
+                    btc_ok.store(false, std::memory_order_release);
+                    return;
+                }
+            }
+        });
+
+        std::thread eth_traffic([&]() {
+            start_gate.worker_ready_and_wait();
+            for (int i = 0; i < kEthOrders; ++i)
+            {
+                const auto buy = exchange.execute_market_order(eth_buyer, eth_usdt_market, Side::Buy, 1);
+                if (!buy.has_value())
+                {
+                    eth_ok.store(false, std::memory_order_release);
+                    return;
+                }
+            }
+        });
+
+        start_gate.release_workers();
+        btc_traffic.join();
+        eth_traffic.join();
+        ASSERT_TRUE(btc_ok.load(std::memory_order_acquire));
+        ASSERT_TRUE(eth_ok.load(std::memory_order_acquire));
+
+        const auto eth_seller_eth_free = exchange.free_balance(eth_seller, eth);
+        const auto eth_seller_eth_reserved = exchange.reserved_balance(eth_seller, eth);
+        const auto eth_seller_usdt_free = exchange.free_balance(eth_seller, usdt);
+        const auto eth_buyer_eth_free = exchange.free_balance(eth_buyer, eth);
+        const auto eth_buyer_usdt_free = exchange.free_balance(eth_buyer, usdt);
+        const auto eth_buyer_usdt_reserved = exchange.reserved_balance(eth_buyer, usdt);
+
+        ASSERT_TRUE(eth_seller_eth_free.has_value());
+        ASSERT_TRUE(eth_seller_eth_reserved.has_value());
+        ASSERT_TRUE(eth_seller_usdt_free.has_value());
+        ASSERT_TRUE(eth_buyer_eth_free.has_value());
+        ASSERT_TRUE(eth_buyer_usdt_free.has_value());
+        ASSERT_TRUE(eth_buyer_usdt_reserved.has_value());
+
+        EXPECT_EQ(*eth_seller_eth_free, 0);
+        EXPECT_EQ(*eth_seller_eth_reserved, 0);
+        EXPECT_EQ(*eth_seller_usdt_free, kEthOrders);
+        EXPECT_EQ(*eth_buyer_eth_free, kEthOrders);
+        EXPECT_EQ(*eth_buyer_usdt_free, 0);
+        EXPECT_EQ(*eth_buyer_usdt_reserved, 0);
+
+        expect_no_orphan_orders(exchange, {btc_usdt_market, eth_usdt_market});
     }
-
-    btc_traffic.join();
-    ASSERT_TRUE(btc_ok.load(std::memory_order_acquire));
-
-    const auto eth_seller_eth_free = exchange.free_balance(eth_seller, eth);
-    const auto eth_seller_eth_reserved = exchange.reserved_balance(eth_seller, eth);
-    const auto eth_seller_usdt_free = exchange.free_balance(eth_seller, usdt);
-    const auto eth_buyer_eth_free = exchange.free_balance(eth_buyer, eth);
-    const auto eth_buyer_usdt_free = exchange.free_balance(eth_buyer, usdt);
-    const auto eth_buyer_usdt_reserved = exchange.reserved_balance(eth_buyer, usdt);
-
-    ASSERT_TRUE(eth_seller_eth_free.has_value());
-    ASSERT_TRUE(eth_seller_eth_reserved.has_value());
-    ASSERT_TRUE(eth_seller_usdt_free.has_value());
-    ASSERT_TRUE(eth_buyer_eth_free.has_value());
-    ASSERT_TRUE(eth_buyer_usdt_free.has_value());
-    ASSERT_TRUE(eth_buyer_usdt_reserved.has_value());
-
-    EXPECT_EQ(*eth_seller_eth_free, 0);
-    EXPECT_EQ(*eth_seller_eth_reserved, 0);
-    EXPECT_EQ(*eth_seller_usdt_free, kEthOrders);
-    EXPECT_EQ(*eth_buyer_eth_free, kEthOrders);
-    EXPECT_EQ(*eth_buyer_usdt_free, 0);
-    EXPECT_EQ(*eth_buyer_usdt_reserved, 0);
-
-    expect_no_orphan_orders(exchange, {btc_usdt_market, eth_usdt_market});
 }
