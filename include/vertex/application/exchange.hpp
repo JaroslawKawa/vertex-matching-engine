@@ -103,10 +103,14 @@ namespace vertex::application
         }
     };
 
+    class ExchangeTestAccess;
+
     class Exchange
 
     {
     private:
+        friend class ExchangeTestAccess;
+
         OrderMetaStore order_meta_store_;
 
         std::unordered_map<UserId, std::shared_ptr<Account>> accounts_;

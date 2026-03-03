@@ -20,9 +20,13 @@ namespace vertex::application
         Price price;
     };
 
+    class OrderMetaStoreTestAccess;
+
     class OrderMetaStore
     {
     private:
+        friend class OrderMetaStoreTestAccess;
+
         struct Shard
         {
             std::unordered_map<OrderId, OrderMeta> data;

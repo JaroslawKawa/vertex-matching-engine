@@ -1,4 +1,5 @@
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -11,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include "tests/application/exchange_test_access.hpp"
 #include "vertex/application/exchange.hpp"
 #include "vertex/application/trade_history.hpp"
 
@@ -18,6 +20,7 @@ namespace
 {
     using vertex::application::Exchange;
     using vertex::application::CancelOrderError;
+    using vertex::application::ExchangeTestAccess;
     using vertex::application::TradeHistory;
     using vertex::core::Asset;
     using vertex::core::Market;
@@ -61,6 +64,19 @@ namespace
     Market btc_usdt()
     {
         return Market{Asset{"btc"}, Asset{"usdt"}};
+    }
+
+    void expect_no_orphan_orders(const Exchange &exchange, const std::vector<Market> &known_markets)
+    {
+        const auto snapshot = ExchangeTestAccess::order_meta_snapshot(exchange);
+
+        for (const auto &[order_id, meta] : snapshot)
+        {
+            (void)order_id;
+            EXPECT_TRUE(exchange.user_exists(meta.owner));
+            const bool market_known = std::find(known_markets.begin(), known_markets.end(), meta.market) != known_markets.end();
+            EXPECT_TRUE(market_known);
+        }
     }
 }
 
@@ -497,6 +513,8 @@ TEST(ExchangeConcurrencyTest, PlaceLimitParallelStressDoesNotProduceNegativeBala
         EXPECT_GE(*free_base, 0);
         EXPECT_GE(*reserved_base, 0);
     }
+
+    expect_no_orphan_orders(exchange, {market});
 }
 
 TEST(ExchangeConcurrencyTest, MarketOrderAndCancelMixedPreservesReserveInvariants)
@@ -734,6 +752,8 @@ TEST(ExchangeConcurrencyTest, PlaceLimitParallelOnTwoMarketsKeepsBalancesNonNega
     EXPECT_GE(*eth_seller_eth_free, 0);
     EXPECT_GE(*eth_seller_eth_reserved, 0);
     EXPECT_GE(*eth_seller_usdt_free, 0);
+
+    expect_no_orphan_orders(exchange, {btc_usdt_market, eth_usdt_market});
 }
 
 TEST(ExchangeConcurrencyTest, CancelDuringHighInflowDoesNotDeadlockAndRestoresSellerReservation)
@@ -844,6 +864,8 @@ TEST(ExchangeConcurrencyTest, CancelDuringHighInflowDoesNotDeadlockAndRestoresSe
     EXPECT_GE(*seller_btc_free, 0);
     EXPECT_GE(*seller_btc_reserved, 0);
     EXPECT_EQ(*seller_btc_reserved, 0);
+
+    expect_no_orphan_orders(exchange, {market});
 }
 
 TEST(ExchangeConcurrencyTest, SharedUsersAndDisjointUsersContentionScenariosStayConsistent)
@@ -1034,4 +1056,6 @@ TEST(ExchangeConcurrencyTest, HighTrafficOnBtcUsdtDoesNotBreakEthUsdtFlow)
     EXPECT_EQ(*eth_buyer_eth_free, kEthOrders);
     EXPECT_EQ(*eth_buyer_usdt_free, 0);
     EXPECT_EQ(*eth_buyer_usdt_reserved, 0);
+
+    expect_no_orphan_orders(exchange, {btc_usdt_market, eth_usdt_market});
 }
