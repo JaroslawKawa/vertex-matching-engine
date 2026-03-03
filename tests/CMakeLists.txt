@@ -8,6 +8,7 @@ add_executable(vertex_tests
     core/asset_market_tests.cpp
     application/trade_history_tests.cpp
     application/exchange_tests.cpp
+    application/exchange_concurrency_tests.cpp
     cli/tokenizer_tests.cpp
     cli/parser_tests.cpp
     cli/cli_app_tests.cpp

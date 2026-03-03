@@ -37,7 +37,7 @@ namespace vertex::application
     {
         const Shard &shard = shard_for(market);
         {
-            std::shared_lock lock(shard.mu_);
+            std::lock_guard lock(shard.mu_);
             auto result = shard.trades_map_.find(market);
             if (result == shard.trades_map_.end())
                 return std::vector<Trade>{};

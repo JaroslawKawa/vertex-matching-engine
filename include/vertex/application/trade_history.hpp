@@ -1,6 +1,6 @@
 #pragma once
 #include <array>
-#include <shared_mutex>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 #include "vertex/core/types.hpp"
@@ -17,7 +17,7 @@ namespace vertex::application
         struct Shard
         {
             std::unordered_map<Market, std::vector<Trade>> trades_map_{};
-            mutable std::shared_mutex mu_;
+            mutable std::mutex mu_;
         };
         static constexpr std::size_t kShardCount = 64;
         std::array<Shard, kShardCount> shards_;
