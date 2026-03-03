@@ -12,6 +12,8 @@ FetchContent_Declare(
   URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
 )
 
+option(VERTEX_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
@@ -32,8 +34,8 @@ add_library(vertex_engine STATIC
 
 target_include_directories(vertex_engine PUBLIC include)
 
-add_executable(
-    vertex_app app/main.cpp
+add_executable(vertex_app 
+    app/main.cpp
     app/cli/cli_app.cpp
     app/cli/printer.cpp
     app/cli/tokenizer.cpp
@@ -42,10 +44,29 @@ add_executable(
 
 target_link_libraries(vertex_app PRIVATE vertex_engine)
 
+if (TARGET vertex_tsan_flags)
+    target_link_libraries(vertex_engine PRIVATE vertex_tsan_flags)
+endif()
+
 if (MSVC)
     target_compile_options(vertex_app PRIVATE /W4)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(vertex_app PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if (VERTEX_ENABLE_TSAN)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        add_library(vertex_tsan_flags INTERFACE)
+        target_compile_options(vertex_tsan_flags INTERFACE
+            -fsanitize=thread
+            -fno-omit-frame-pointer
+            -g
+            -O1
+        )
+        target_link_options(vertex_tsan_flags INTERFACE -fsanitize=thread)
+    else()
+        message(FATAL_ERROR "TSAN is supported only on Linux with GCC/Clang")
+    endif()
 endif()
 
 add_subdirectory(tests)

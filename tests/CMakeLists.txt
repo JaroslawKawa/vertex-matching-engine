@@ -26,12 +26,25 @@ target_link_libraries(vertex_tests
     PRIVATE
         vertex_engine
         GTest::gtest_main
+
 )
+if (TARGET vertex_tsan_flags)
+    target_link_libraries(vertex_tests PRIVATE vertex_tsan_flags)
+endif()
 
 target_include_directories(vertex_tests
     PRIVATE
         ${CMAKE_SOURCE_DIR}
 )
+
+if (TARGET vertex_tsan_flags)
+    add_custom_target(tsan
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+        DEPENDS vertex_tests
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        USES_TERMINAL
+    )
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(vertex_tests)
