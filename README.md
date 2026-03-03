@@ -69,6 +69,7 @@ Detailed docs are available in:
 - `docs/engine.md`
 - `docs/application.md`
 - `docs/cli.md`
+- `docs/benchmarks.md`
 - `docs/adr/0001-concurrency-model-and-invariants.md`
 - `docs/concurrency-test-matrix.md`
 
