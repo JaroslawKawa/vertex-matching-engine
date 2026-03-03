@@ -94,15 +94,16 @@ public:
     AggregateMetrics aggregate(ScenarioKind kind, const std::vector<ScenarioMetrics> &runs) const;
     ScenarioMetrics run_single_market(int repeat_index);
     ScenarioMetrics run_multi_market(int repeat_index);
+    ScenarioMetrics run_disjoint_users(int repeat_index);
+    ScenarioMetrics run_shared_users(int repeat_index);
 
 private:
     BenchConfig cfg_;
 
-    ScenarioMetrics run_shared_users(int repeat_index);
-    ScenarioMetrics run_disjoint_users(int repeat_index);
 
     std::mt19937 make_thread_rng(int repeat_index, int thread_index) const;
     OpKind pick_random_op(std::mt19937 &rng) const;
-    bool execute_one_op(Exchange &ex, const Market &market, const std::vector<UserId> &buyers, const std::vector<UserId> &sellers, OpKind op);
+    UserId pick_random_user(std::mt19937 &rng, const std::vector<UserId> &users) const;
+    bool execute_one_op(std::mt19937 &rng, Exchange &ex, const Market &market, const UserId buyer, const UserId seller, OpKind op);
 };
 

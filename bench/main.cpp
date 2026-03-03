@@ -22,6 +22,8 @@ int main(int argc, char **argv)
     BenchmarkRunner run{cfg};
     print_run_result(run.run_single_market(1));
     print_run_result(run.run_multi_market(1));
+    print_run_result(run.run_disjoint_users(1));
+    print_run_result(run.run_shared_users(1));
 
     return 0;
 }

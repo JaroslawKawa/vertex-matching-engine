@@ -65,9 +65,10 @@ ScenarioMetrics BenchmarkRunner::run_single_market(int repeat_index)
 
             while(!stop.load(std::memory_order_acquire)){
                 OpKind op = pick_random_op(rng);
-
+                UserId buyer = pick_random_user(rng, buyers);
+                UserId seller = pick_random_user(rng, sellers);
                 auto t0 = SteadyClock::now();
-                bool ok = execute_one_op(exchange, market, buyers, sellers, op);
+                bool ok = execute_one_op(rng, exchange, market, buyer, seller, op);
                 auto t1 = SteadyClock::now();
 
                 if(ok && measuring.load(std::memory_order_relaxed)){
@@ -131,6 +132,13 @@ ScenarioMetrics BenchmarkRunner::run_single_market(int repeat_index)
 
 ScenarioMetrics BenchmarkRunner::run_multi_market(int repeat_index)
 {
+    auto result = run_disjoint_users(repeat_index);
+    result.scenario = ScenarioKind::MultiMarketParallelLoad;
+    return result;
+}
+
+ScenarioMetrics BenchmarkRunner::run_disjoint_users(int repeat_index)
+{
     Exchange exchange;
     Asset btc{"BTC"};
     Asset usdt{"USDT"};
@@ -189,9 +197,10 @@ ScenarioMetrics BenchmarkRunner::run_multi_market(int repeat_index)
 
             while(!stop.load(std::memory_order_acquire)){
                 OpKind op = pick_random_op(rng);
-
+                UserId buyer = pick_random_user(rng,market_buyers);
+                UserId seller = pick_random_user(rng,market_sellers);
                 auto t0 = SteadyClock::now();
-                bool ok = execute_one_op(exchange, market, market_buyers, market_sellers, op);
+                bool ok = execute_one_op(rng, exchange, market, buyer, seller, op);
                 auto t1 = SteadyClock::now();
 
                 if(ok && measuring.load(std::memory_order_relaxed)){
@@ -245,7 +254,133 @@ ScenarioMetrics BenchmarkRunner::run_multi_market(int repeat_index)
     double ops_per_sec = measured_s > 0 ? static_cast<double>(ops) / measured_s : 0.0;
 
     return ScenarioMetrics{
-        .scenario = ScenarioKind::MultiMarketParallelLoad,
+        .scenario = ScenarioKind::DisjointUsersContention,
+        .repeat_index = repeat_index,
+        .throughput = ThroughputStats{
+            .ops_per_sec = ops_per_sec,
+            .total_ops = ops},
+        .latency = LatencyStats{.p50_us = pct(50), .p95_us = pct(95), .p99_us = pct(99)}};
+}
+
+ScenarioMetrics BenchmarkRunner::run_shared_users(int repeat_index)
+{
+    Exchange exchange;
+    Asset btc{"BTC"};
+    Asset usdt{"USDT"};
+    Asset eth{"ETH"};
+    Asset pln{"PLN"};
+    Asset sol{"SOL"};
+
+    const std::vector<Market> markets{{usdt, btc}, {eth, btc}, {pln, btc}, {sol, btc}};
+    const std::size_t users_per_market = std::max<std::size_t>(4, 2 * static_cast<std::size_t>(cfg_.thread_count) / markets.size());
+
+    for (auto &m : markets)
+    {
+        exchange.register_market(m);
+    }
+
+    std::vector<UserId> buyers;
+    buyers.reserve(markets.size() * users_per_market);
+    std::vector<UserId> sellers;
+    sellers.reserve(markets.size() * users_per_market);
+
+    for (std::size_t i = 0; i < (markets.size() * users_per_market); ++i)
+    {
+
+        UserId buyer = exchange.create_user(std::format("Buyer_U{}", i)).value();
+        UserId seller = exchange.create_user(std::format("Seller_U{}", i)).value();
+
+        for (const auto &m : markets)
+        {
+            exchange.deposit(buyer, m.quote(), 1'000'000);
+            exchange.deposit(seller, m.base(), 1'000'000);
+        }
+        buyers.push_back(buyer);
+        sellers.push_back(seller);
+    }
+
+    std::latch start_latch(cfg_.thread_count);
+    std::atomic<bool> measuring{false};
+    std::atomic<bool> stop{false};
+    std::atomic<std::uint64_t> measured_ops{0};
+
+    std::vector<std::vector<double>> lat_us_per_thread(cfg_.thread_count);
+
+    std::vector<std::thread> workers;
+    workers.reserve(cfg_.thread_count);
+
+    for (int tid = 0; tid < cfg_.thread_count; ++tid)
+    {
+        workers.emplace_back([&, tid]
+                             {
+            std::mt19937 rng = make_thread_rng(repeat_index, tid);
+            auto& local_lat = lat_us_per_thread[tid];
+            local_lat.reserve(10000);
+            size_t market_index = tid%markets.size();
+            Market market = markets[market_index];
+            start_latch.count_down();
+            start_latch.wait();
+
+            while(!stop.load(std::memory_order_acquire)){
+                OpKind op = pick_random_op(rng);
+                UserId buyer = pick_random_user(rng,buyers);
+                UserId seller = pick_random_user(rng,sellers);
+                auto t0 = SteadyClock::now();
+                bool ok = execute_one_op(rng, exchange, market, buyer, seller, op);
+                auto t1 = SteadyClock::now();
+
+                if(ok && measuring.load(std::memory_order_relaxed)){
+                    measured_ops.fetch_add(1, std::memory_order_relaxed);
+                    double us = std::chrono::duration<double,std::micro>(t1 - t0).count();
+                    local_lat.push_back(us);
+                }
+            } });
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(cfg_.warmup_seconds));
+
+    measuring.store(true, std::memory_order_release);
+    auto measure_start = SteadyClock::now();
+
+    std::this_thread::sleep_for(std::chrono::seconds(cfg_.measure_seconds));
+
+    auto measure_stop = SteadyClock::now();
+    measuring.store(false, std::memory_order_release);
+
+    stop.store(true, std::memory_order_release);
+
+    for (auto &th : workers)
+    {
+        th.join();
+    }
+
+    std::vector<double> all_lat_us;
+    for (const auto &th_lat : lat_us_per_thread)
+    {
+        for (double lat : th_lat)
+        {
+            all_lat_us.push_back(lat);
+        }
+    }
+
+    std::sort(all_lat_us.begin(), all_lat_us.end());
+
+    auto pct = [&](double p) -> double
+    {
+        if (all_lat_us.empty())
+        {
+            return 0.0;
+        }
+        const std::size_t idx = static_cast<std::size_t>(std::floor((p / 100.0) * (all_lat_us.size() - 1)));
+        return all_lat_us[idx];
+    };
+
+    double measured_s = std::chrono::duration<double>(measure_stop - measure_start).count();
+    std::uint64_t ops = measured_ops.load(std::memory_order_relaxed);
+    double ops_per_sec = measured_s > 0 ? static_cast<double>(ops) / measured_s : 0.0;
+
+    return ScenarioMetrics{
+        .scenario = ScenarioKind::SharedUsersContention,
         .repeat_index = repeat_index,
         .throughput = ThroughputStats{
             .ops_per_sec = ops_per_sec,
@@ -275,20 +410,19 @@ OpKind BenchmarkRunner::pick_random_op(std::mt19937 &rng) const
     return OpKind::Cancel;
 }
 
-bool BenchmarkRunner::execute_one_op(Exchange &ex, const Market &market, const std::vector<UserId> &buyers, const std::vector<UserId> &sellers, OpKind op)
+UserId BenchmarkRunner::pick_random_user(std::mt19937 &rng, const std::vector<UserId> &users) const
 {
-    if (buyers.empty() || sellers.empty())
-    {
-        return false;
-    }
 
-    static thread_local std::mt19937 rng(0xC0FFEEu);
-    std::uniform_int_distribution<std::size_t> buyer_dist(0, buyers.size() - 1);
-    std::uniform_int_distribution<std::size_t> seller_dist(0, sellers.size() - 1);
+    assert(!users.empty());
+
+    std::uniform_int_distribution<std::size_t> users_dist(0, users.size() - 1);
+
+    return users[users_dist(rng)];
+}
+
+bool BenchmarkRunner::execute_one_op(std::mt19937 &rng, Exchange &ex, const Market &market, const UserId buyer, const UserId seller, OpKind op)
+{
     std::uniform_int_distribution<int> side_dist(0, 1);
-
-    const UserId buyer = buyers[buyer_dist(rng)];
-    const UserId seller = sellers[seller_dist(rng)];
 
     switch (op)
     {
