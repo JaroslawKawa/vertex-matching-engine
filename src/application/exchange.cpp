@@ -338,14 +338,6 @@ namespace vertex::application
             order_id = order_id_generator_.next();
         }
 
-        LimitOrderRequest limit_order_request{
-            .id = order_id,
-            .user_id = user_id,
-            .market = market,
-            .side = side,
-            .limit_price = price,
-            .base_quantity = quantity};
-
         if (!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side = side, .price = price}))
         {
             std::expected<void, WalletError> rollback_release_result;
@@ -354,10 +346,18 @@ namespace vertex::application
                 rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
             }
             assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
-            order_meta_store_.erase(limit_order_request.id);
+            order_meta_store_.erase(order_id);
 
             return std::unexpected(PlaceOrderError::OrderIdCollision);
         }
+
+        LimitOrderRequest limit_order_request{
+            .id = order_id,
+            .user_id = user_id,
+            .market = market,
+            .side = side,
+            .limit_price = price,
+            .base_quantity = quantity};
 
         order_result.order_id = limit_order_request.id;
         order_result.remaining_quantity = quantity;
@@ -373,7 +373,7 @@ namespace vertex::application
                 rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
             }
             assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
-            order_meta_store_.erase(limit_order_request.id);
+            order_meta_store_.erase(order_id);
 
             return std::unexpected(map_to_place_order_error(matching_result_expected.error()));
         }
