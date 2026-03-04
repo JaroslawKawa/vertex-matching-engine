@@ -33,12 +33,6 @@ enum class ScenarioKind
     DisjointUsersContention
 };
 
-struct CliArgs
-{
-    BenchConfig config;
-    std::vector<ScenarioKind> scenarios;
-};
-
 struct LatencyStats
 {
     double p50_us;

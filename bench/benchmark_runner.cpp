@@ -74,7 +74,7 @@ std::vector<ScenarioMetrics> BenchmarkRunner::run_scenario(ScenarioKind kind)
         return result;
 
     default:
-    assert(false);
+        assert(false);
         return result;
     }
 }
