@@ -41,6 +41,8 @@ namespace vertex::engine
         Market market = market_of(order_request);
         {
             std::shared_lock lock(workers_mutex_);
+            if (stopping_)
+                return make_ready_future_error<std::vector<Execution>>(EngineAsyncError::WorkerStopped);
             auto worker_it = workers_.find(market);
 
             if (worker_it == workers_.end())
@@ -58,6 +60,8 @@ namespace vertex::engine
         std::shared_ptr<MarketWorker> worker;
         {
             std::shared_lock lock(workers_mutex_);
+            if (stopping_)
+                return make_ready_future_error<std::optional<CancelResult>>(EngineAsyncError::WorkerStopped);
             auto worker_it = workers_.find(market);
 
             if (worker_it == workers_.end())
@@ -75,6 +79,8 @@ namespace vertex::engine
         std::shared_ptr<MarketWorker> worker;
         {
             std::shared_lock lock(workers_mutex_);
+            if (stopping_)
+                return make_ready_future_error<std::optional<Price>>(EngineAsyncError::WorkerStopped);
             auto worker_it = workers_.find(market);
 
             if (worker_it == workers_.end())
@@ -92,6 +98,8 @@ namespace vertex::engine
         std::shared_ptr<MarketWorker> worker;
         {
             std::shared_lock lock(workers_mutex_);
+            if (stopping_)
+                return make_ready_future_error<std::optional<Price>>(EngineAsyncError::WorkerStopped);
             auto worker_it = workers_.find(market);
 
             if (worker_it == workers_.end())
