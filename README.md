@@ -58,7 +58,7 @@ cmake --build build --config Debug --target vertex_app
 
 - `core` - basic types, strong IDs, ID generator, asset/market primitives
 - `domain` - `User`, `Wallet`, `Trade`
-- `engine` - `OrderRequest`, `RestingOrder`, `OrderBook`, `MatchingEngine`
+- `engine` - `OrderRequest`, `RestingOrder`, `OrderBook`, `MarketWorker`, `MarketDispatcher`
 - `application` - `Exchange`, wallet orchestration, settlement, trade history
 - `app/cli` - command AST, tokenizer, parser, dispatcher (`CliApp`), and output printer
 

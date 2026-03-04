@@ -17,7 +17,6 @@ add_executable(vertex_tests
     domain/wallet_tests.cpp
     domain/trade_tests.cpp
     engine/order_book_tests.cpp
-    engine/matching_engine_tests.cpp
     engine/market_worker_tests.cpp
     engine/market_dispatcher_tests.cpp
 )
