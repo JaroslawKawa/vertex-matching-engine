@@ -11,7 +11,8 @@ Main components:
 - `OrderRequest` (incoming request model)
 - `RestingOrder` (booked passive order model)
 - `OrderBook` (single market)
-- `MatchingEngine` (multi-market router)
+- `MarketWorker` (single-market async worker over `OrderBook`)
+- `MarketDispatcher` (multi-market async router)
 
 Engine does not manage wallet balances or user settlement.
 
@@ -118,11 +119,35 @@ Behavior:
 - empty price levels are erased,
 - market remainder is not inserted into the book.
 
-## MatchingEngine
+## MarketWorker and MarketDispatcher
+
+### MarketWorker
+
+`MarketWorker` owns one `OrderBook` and processes `MarketTask` FIFO on a dedicated thread.
+
+Public API:
+
+- `submit(OrderRequest)`
+- `cancel(OrderId)`
+- `best_bid()`
+- `best_ask()`
+- `stop()`
+
+Behavior:
+
+- tasks are queued and processed in-order on worker thread,
+- `submit(...)` uses `std::visit` and dispatches by request type,
+- limit request is matched first; if remainder exists, it is converted to `RestingOrder` and inserted via `insert_resting`,
+- market requests only match against current book liquidity.
+- `stop()` flips internal stop flag and wakes worker; worker exits after draining already queued tasks.
+
+### MarketDispatcher
 
 State:
 
-- `std::unordered_map<Market, OrderBook> books_`
+- `std::unordered_map<Market, std::shared_ptr<MarketWorker>> workers_`
+- `std::shared_mutex workers_mutex_`
+- `bool stopping_`
 
 Public API:
 
@@ -130,12 +155,14 @@ Public API:
 - `has_market(const Market&) const noexcept`
 - `submit(OrderRequest&&)`
 - `cancel(const Market&, OrderId)`
-- `best_bid(const Market&) const`
-- `best_ask(const Market&) const`
+- `best_bid(const Market&)`
+- `best_ask(const Market&)`
+- `stop_all()`
 
 Behavior:
 
-- `submit(...)` uses `std::visit` and dispatches by request type,
-- limit request is matched first; if remainder exists, it is converted to `RestingOrder` and inserted via `insert_resting`,
-- market requests only match against current book liquidity,
-- `cancel`, `best_bid`, `best_ask`, and request handlers assert that market is registered.
+- routes calls to market-specific worker,
+- returns async results as `future<expected<...>>`,
+- `stop_all()` marks dispatcher as stopping and then stops all workers,
+- registration and request APIs return `WorkerStopped` once dispatcher is stopping,
+- async errors are represented by `EngineAsyncError::{WorkerStopped, MarketAlreadyRegistered, MarketNotFound}`.

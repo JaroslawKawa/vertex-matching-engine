@@ -30,6 +30,7 @@ The exchange must stay correct under concurrent API calls while preserving match
 1. Per-market sequential consistency:
    - each market is processed by exactly one `MarketWorker`,
    - tasks for one market are executed in queue order.
+   - matching is serialized per market, while API callers can settle concurrently after `future.get()`.
 2. Business-atomic operation outcome:
    - `place_limit`, `execute_market_order`, and `cancel_order` return a fully settled final state (or an error + rollback),
    - no externally visible partially settled state is allowed at API boundary.
@@ -48,7 +49,7 @@ The exchange must stay correct under concurrent API calls while preserving match
 
 ### MarketDispatcher owns
 
-- `unordered_map<Market, MarketWorker>`
+- `unordered_map<Market, shared_ptr<MarketWorker>>`
 - workers lifecycle (`register`, `stop_all`)
 - routing from market to worker
 
@@ -56,7 +57,8 @@ The exchange must stay correct under concurrent API calls while preserving match
 
 - one market-local order book
 - one task queue + worker thread
-- serial execution of market tasks (`Submit`, `Cancel`, `BestBid`, `BestAsk`, `Stop`)
+- serial execution of market tasks (`Submit`, `Cancel`, `BestBid`, `BestAsk`)
+- stop state (`stopping_`) and graceful queue drain on shutdown
 
 ## Lock Ordering Rules
 

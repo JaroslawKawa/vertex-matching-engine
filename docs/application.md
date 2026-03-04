@@ -1,26 +1,33 @@
 # Application Layer
 
-This document reflects the current implementation in `include/vertex/application/exchange.hpp` and `src/application/exchange.cpp`.
+This document reflects the current implementation in `include/vertex/application/*` and `src/application/*`.
 
 ## Scope
 
 `Exchange` orchestrates:
 
 - users and wallets,
-- market registration,
-- request submission to `MatchingEngine`,
-- settlement and trade recording,
-- cancel and reservation cleanup.
+- market registration via `MarketDispatcher`,
+- order submission and settlement,
+- cancel/release flow,
+- trade persistence.
 
-Owned state:
+`Exchange` does not do matching itself. Matching lives in engine workers.
 
-- `users_`: `unordered_map<UserId, User>`
-- `wallets_`: `unordered_map<UserId, Wallet>`
-- `orders_`: `unordered_map<OrderId, UserId>`
-- `orders_market_`: `unordered_map<OrderId, Market>`
-- generators: `UserIdGenerator`, `OrderIdGenerator`, `TradeIdGenerator`
-- `matching_engine_`
-- `trade_history_`
+## Owned State
+
+- `accounts_`: `unordered_map<UserId, shared_ptr<Account>>`
+- `accounts_mu_`: `shared_mutex` guarding map structure
+- `order_meta_store_`: sharded metadata store for resting orders
+- ID generators (`UserId`, `OrderId`, `TradeId`) + dedicated mutexes
+- `market_dispatcher_`
+- `trade_history_` (sharded, thread-safe)
+
+`Account` currently contains:
+
+- `User user`
+- `Wallet wallet`
+- `std::mutex mu`
 
 ## Errors
 
@@ -28,11 +35,9 @@ Current enums:
 
 - `UserError`: `UserNotFound`, `UserAlreadyExists`, `EmptyName`
 - `WalletOperationError`: `UserNotFound`, `InsufficientFunds`, `InsufficientReserved`, `InvalidQuantity`
-- `PlaceOrderError`: `MarketNotListed`, `UserNotFound`, `WalletNotFound`, `InsufficientFunds`, `InvalidQuantity`, `InvalidAmount`
-- `CancelOrderError`: `UserNotFound`, `OrderNotFound`, `NotOrderOwner`
-- `RegisterMarketError`: `AlreadyListed`, `InvalidMarket`
-
-Note: some enum values are currently not used by implementation paths (`UserAlreadyExists`, `WalletNotFound`, `InvalidMarket`).
+- `PlaceOrderError`: `MarketNotListed`, `UserNotFound`, `InsufficientFunds`, `InvalidQuantity`, `InvalidAmount`, `WorkerStopped`, `OrderIdCollision`
+- `CancelOrderError`: `UserNotFound`, `OrderNotFound`, `NotOrderOwner`, `MarketNotFound`, `WorkerStopped`
+- `RegisterMarketError`: `AlreadyListed`, `WorkerStopped`
 
 ## Public API
 
@@ -42,67 +47,100 @@ User:
 - `get_user_name(user_id)`
 - `user_exists(user_id)`
 
-`create_user(name)` identity uniqueness is guaranteed by `UserId`.
-
-Wallet passthrough:
+Wallet:
 
 - `deposit`, `withdraw`, `reserve`, `release`
 - `free_balance`, `reserved_balance`
 
-Market and trading:
+Trading:
 
 - `register_market(market)`
 - `place_limit_order(user_id, market, side, price, quantity)`
 - `execute_market_order(user_id, market, side, order_quantity)`
 - `cancel_order(user_id, order_id)`
 
-## Limit order flow
+## OrderMetaStore / TradeHistory
 
-`place_limit_order` currently performs:
+### OrderMetaStore
 
-1. validation (`user_id`, market, `quantity`, `price`, wallet presence),
-2. reservation: BUY reserves quote `price * quantity`; SELL reserves base `quantity`,
-3. build `LimitOrderRequest` and submit to `matching_engine_.submit(...)`,
-4. persist ownership mapping in `orders_` and `orders_market_`,
-5. settle each `Execution`: buyer consumes reserved quote, gets quote refund on price improvement, gets base; seller consumes reserved base and gets quote,
-6. write `Trade` to `TradeHistory`,
-7. remove fully filled resting orders from ownership maps,
-8. return `OrderPlacementResult`.
+Current `OrderMeta` fields:
 
-`OrderPlacementResult` for limit orders is in base quantity units.
+- `owner`
+- `market`
+- `side`
+- `price`
 
-## Market order flow
+Current API:
 
-`execute_market_order` currently:
+- `try_insert(order_id, meta)`
+- `find(order_id)`
+- `erase(order_id)`
 
-1. validates input,
-2. reserves taker funds: BUY reserves quote budget (`order_quantity`); SELL reserves base quantity (`order_quantity`),
-3. dispatches to `execute_market_buy_by_quote(...)` or `execute_market_sell_by_base(...)`,
-4. both helpers build engine request (`MarketBuyByQuoteRequest` / `MarketSellByBaseRequest`) and call `matching_engine_.submit(...)`,
-5. settles executions and appends `Trade` records,
-6. removes fully filled resting counterpart orders from ownership maps,
-7. releases taker remainder reservation (if any).
+Implementation uses 64 shards (`array<Shard, 64>`) with per-shard mutex.
+
+### TradeHistory
+
+Trade storage is also sharded (64 shards) by `Market` hash.
+
+API:
+
+- `add(Trade)`
+- `market_history(market)`
+
+## Limit Order Flow (`place_limit_order`)
+
+Current flow:
+
+1. Validate input (`user`, market listed, `price > 0`, `quantity > 0`).
+2. Resolve taker account pointer under `accounts_mu_`.
+3. Reserve taker funds (`quote = price*quantity` for BUY, `base = quantity` for SELL).
+4. Generate `order_id`.
+5. Insert order metadata in `order_meta_store_` before submit.
+6. Submit `LimitOrderRequest` to dispatcher and wait on `future.get()`.
+7. On submit error: rollback reservation and erase metadata.
+8. For each `Execution`: lock buyer/seller accounts in deterministic `UserId` order, settle wallets, append trade, erase fully filled resting order metadata.
+9. Return `OrderPlacementResult`.
+
+`OrderPlacementResult` for limit orders is base-quantity based (`filled_quantity`, `remaining_quantity` in base units).
+
+## Market Order Flow (`execute_market_order`)
+
+Current flow:
+
+1. Validate input.
+2. Reserve taker funds (`quote budget` for BUY, `base quantity` for SELL).
+3. Dispatch to helper:
+   - `execute_market_buy_by_quote`
+   - `execute_market_sell_by_base`
+4. Helper builds request, submits via dispatcher, waits for executions.
+5. Settle each execution against resting counterpart owner from `order_meta_store_`.
+6. Erase fully filled resting order metadata.
+7. Release unused taker reservation.
+8. On submit failure: rollback full initial reservation.
 
 Notes:
 
-- market requests are taker-only and are not persisted in `orders_` / `orders_market_`,
-- canceling such returned order id later will return `OrderNotFound`,
-- `OrderPlacementResult` units are side-dependent: BUY path tracks quote spent/remaining; SELL path tracks base sold/remaining.
+- market taker request itself is not inserted into `order_meta_store_`,
+- canceling market-order result id returns `OrderNotFound`,
+- market BUY path reports filled/remaining in quote units, market SELL path in base units.
 
-## Cancel flow
+## Cancel Flow (`cancel_order`)
 
-`cancel_order` currently performs:
+Current flow:
 
-1. validate user and ownership,
-2. resolve order market,
-3. call `matching_engine_.cancel(...)`,
-4. release reservation: BUY releases quote `remaining_quantity * price`; SELL releases base `remaining_quantity`,
-5. remove ownership maps entry,
-6. return `CancelOrderResult`.
+1. Validate caller user existence.
+2. Lookup order metadata in `order_meta_store_`.
+3. Validate ownership.
+4. Call `market_dispatcher_.cancel(order.market, order_id).get()`.
+5. If found in book: release exact remaining reservation:
+   - BUY: `remaining_quantity * price` quote
+   - SELL: `remaining_quantity` base
+6. Erase metadata entry.
+7. Return `CancelOrderResult`.
 
-## Register market flow
+## Register Market
 
-`register_market` currently:
+`register_market` delegates to dispatcher and maps engine async errors to:
 
-- returns `AlreadyListed` when market already exists,
-- otherwise registers market in matching engine and returns success.
+- `AlreadyListed`
+- `WorkerStopped`

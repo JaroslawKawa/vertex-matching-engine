@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/JaroslawKawa/vertex-matching-engine/actions/workflows/ci.yml/badge.svg)
 
-C++23 matching engine with layered architecture (`core`, `domain`, `engine`, `application`) and interactive CLI (`app/cli/*`), covered by unit tests.
+C++23 matching engine with layered architecture (`core`, `domain`, `engine`, `application`) and interactive CLI (`app/cli/*`), covered by unit and concurrency tests.
 
 ## About
 
@@ -13,7 +13,7 @@ This project is a C++23 matching engine designed to demonstrate production-style
 - strongly typed domain model (`StrongId`, `Asset`, `Market`) to reduce category errors,
 - reservation-safe settlement and cancel/release flows,
 - explicit error modeling with `std::expected` and typed error enums,
-- automated verification with GoogleTest/CTest and CI (currently 78 unit tests).
+- automated verification with GoogleTest/CTest and CI (currently 107 tests in CTest).
 
 ## Key Features
 
@@ -31,6 +31,7 @@ This project is a C++23 matching engine designed to demonstrate production-style
 - CMake
 - GoogleTest
 - GitHub Actions (CI)
+- ThreadSanitizer (Linux target/job)
 
 ## Quick Start
 
@@ -48,10 +49,26 @@ cmake --build build --config Debug --target vertex_app
 ./build/Debug/vertex_app.exe  # typical Windows multi-config generators
 ```
 
+Run benchmark app:
+
+```bash
+cmake --build build --config Debug --target vertex_bench
+./build/vertex_bench                      # single-config generators
+./build/Debug/vertex_bench.exe            # typical Windows multi-config generators
+./build/Debug/vertex_bench.exe --help     # benchmark CLI options
+```
+
 ## Testing
 
 - Test executable `vertex_tests` is built from `tests/CMakeLists.txt`.
 - Test cases are generated into CTest automatically by `gtest_discover_tests(vertex_tests)`.
+- Linux TSAN target is available with:
+
+```bash
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER=clang++ -DVERTEX_ENABLE_TSAN=ON
+cmake --build build-tsan --target tsan
+```
+
 - The test suite in this repository was built iteratively (AI-assisted) and then manually validated/refined.
 
 ## Architecture
