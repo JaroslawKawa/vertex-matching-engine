@@ -72,13 +72,6 @@ enum class OpKind
     Cancel
 };
 
-struct OpSample
-{
-    OpKind op;
-    std::chrono::nanoseconds latency;
-    bool success;
-};
-
 class BenchmarkRunner
 {
 public:
