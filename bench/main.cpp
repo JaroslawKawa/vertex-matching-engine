@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
+#include <fstream>
 #include <format>
 #include <iostream>
 #include <optional>
@@ -16,6 +17,7 @@ namespace
     {
         BenchConfig config;
         std::vector<ScenarioKind> scenarios;
+        std::optional<std::string> json_output_path;
     };
 
     struct ParseResult
@@ -45,6 +47,23 @@ namespace
             ScenarioKind::MultiMarketParallelLoad,
             ScenarioKind::DisjointUsersContention,
             ScenarioKind::SharedUsersContention};
+    }
+
+    std::string_view scenario_name(ScenarioKind scenario)
+    {
+        switch (scenario)
+        {
+        case ScenarioKind::SingleMarketHighLoad:
+            return "SingleMarketHighLoad";
+        case ScenarioKind::MultiMarketParallelLoad:
+            return "MultiMarketParallelLoad";
+        case ScenarioKind::SharedUsersContention:
+            return "SharedUsersContention";
+        case ScenarioKind::DisjointUsersContention:
+            return "DisjointUsersContention";
+        default:
+            return "InvalidScenario";
+        }
     }
 
     std::string to_lower(std::string_view text)
@@ -133,9 +152,125 @@ namespace
         out << "  --measure <int>          measure seconds (>0)\n";
         out << "  --repeats <int>          repeats per scenario (>0)\n";
         out << "  --seed <uint32>          random seed\n";
+        out << "  --json-out <path>        write raw run metrics to JSON file\n";
         out << "  --verbose                print every run + aggregate\n";
         out << "  --quiet                  print aggregate only\n";
         out << "  --help                   show this help\n";
+    }
+
+    bool write_benchmarks_json(
+        const std::string &path,
+        const std::vector<ScenarioMetrics> &all_runs,
+        const std::vector<AggregateMetrics> &all_aggregates,
+        std::string &error)
+    {
+        std::ofstream out(path, std::ios::out | std::ios::trunc);
+        if (!out.is_open())
+        {
+            error = std::format("Cannot open JSON output path '{}'.", path);
+            return false;
+        }
+
+        out << "{\n";
+        out << "  \"benchmarks\": {\n";
+
+        bool first_scenario = true;
+        for (ScenarioKind scenario : default_scenarios())
+        {
+            std::vector<const ScenarioMetrics *> runs_for_scenario;
+            runs_for_scenario.reserve(all_runs.size());
+
+            for (const auto &run : all_runs)
+            {
+                if (run.scenario == scenario)
+                {
+                    runs_for_scenario.push_back(&run);
+                }
+            }
+
+            if (runs_for_scenario.empty())
+            {
+                continue;
+            }
+
+            if (!first_scenario)
+            {
+                out << ",\n";
+            }
+            first_scenario = false;
+
+            out << "    \"" << scenario_name(scenario) << "\": [\n";
+
+            for (std::size_t i = 0; i < runs_for_scenario.size(); ++i)
+            {
+                const ScenarioMetrics &run = *runs_for_scenario[i];
+                out << "      {\n";
+                out << "        \"index\": " << (run.repeat_index + 1) << ",\n";
+                out << "        \"ops_per_sec\": " << std::format("{:.2f}", run.throughput.ops_per_sec) << ",\n";
+                out << "        \"total_ops\": " << run.throughput.total_ops << ",\n";
+                out << "        \"latency\": {\n";
+                out << "          \"p50\": " << std::format("{:.1f}", run.latency.p50_us) << ",\n";
+                out << "          \"p95\": " << std::format("{:.1f}", run.latency.p95_us) << ",\n";
+                out << "          \"p99\": " << std::format("{:.1f}", run.latency.p99_us) << "\n";
+                out << "        }\n";
+                out << "      }";
+                if (i + 1 < runs_for_scenario.size())
+                {
+                    out << ",";
+                }
+                out << "\n";
+            }
+
+            out << "    ]";
+        }
+
+        out << "\n";
+        out << "  },\n";
+        out << "  \"aggregates\": {\n";
+
+        bool first_aggregate = true;
+        for (ScenarioKind scenario : default_scenarios())
+        {
+            auto it = std::find_if(
+                all_aggregates.begin(),
+                all_aggregates.end(),
+                [&](const AggregateMetrics &aggregate)
+                {
+                    return aggregate.scenario == scenario;
+                });
+
+            if (it == all_aggregates.end())
+            {
+                continue;
+            }
+
+            if (!first_aggregate)
+            {
+                out << ",\n";
+            }
+            first_aggregate = false;
+
+            out << "    \"" << scenario_name(scenario) << "\": {\n";
+            out << "      \"median_ops_per_sec\": " << std::format("{:.2f}", it->median_ops_per_sec) << ",\n";
+            out << "      \"latency\": {\n";
+            out << "        \"p50\": " << std::format("{:.1f}", it->median_p50_us) << ",\n";
+            out << "        \"p95\": " << std::format("{:.1f}", it->median_p95_us) << ",\n";
+            out << "        \"p99\": " << std::format("{:.1f}", it->median_p99_us) << "\n";
+            out << "      }\n";
+            out << "    }";
+        }
+
+        out << "\n";
+        out << "  }\n";
+        out << "}\n";
+
+        if (!out.good())
+        {
+            error = std::format("Failed while writing JSON output '{}'.", path);
+            return false;
+        }
+
+        return true;
     }
 
     ParseResult parse_args(int argc, char **argv)
@@ -320,6 +455,25 @@ namespace
                 continue;
             }
 
+            if (arg == "--json-out")
+            {
+                const auto value = need_value(arg);
+                if (!value.has_value())
+                {
+                    return result;
+                }
+
+                if (value->empty())
+                {
+                    result.ok = false;
+                    result.error = "Invalid --json-out value ''.";
+                    return result;
+                }
+
+                result.args.json_output_path = std::string(*value);
+                continue;
+            }
+
             result.ok = false;
             result.error = std::format("Unknown option '{}'.", arg);
             return result;
@@ -359,9 +513,18 @@ int main(int argc, char **argv)
     }
 
     BenchmarkRunner run{parsed.args.config};
+    std::vector<ScenarioMetrics> all_runs;
+    all_runs.reserve(parsed.args.scenarios.size() * static_cast<std::size_t>(parsed.args.config.repeats));
+    std::vector<AggregateMetrics> all_aggregates;
+    all_aggregates.reserve(parsed.args.scenarios.size());
+
     for (ScenarioKind scenario : parsed.args.scenarios)
     {
         const std::vector<ScenarioMetrics> runs = run.run_scenario(scenario);
+        all_runs.insert(all_runs.end(), runs.begin(), runs.end());
+        const AggregateMetrics aggregate = run.aggregate(scenario, runs);
+        all_aggregates.push_back(aggregate);
+
         if (parsed.args.config.verbose)
         {
             for (const auto &single_run : runs)
@@ -369,7 +532,17 @@ int main(int argc, char **argv)
                 print_run_result(single_run);
             }
         }
-        print_aggregate_result(run.aggregate(scenario, runs));
+        print_aggregate_result(aggregate);
+    }
+
+    if (parsed.args.json_output_path.has_value())
+    {
+        std::string error;
+        if (!write_benchmarks_json(*parsed.args.json_output_path, all_runs, all_aggregates, error))
+        {
+            std::cerr << "JSON output error: " << error << '\n';
+            return 1;
+        }
     }
 
     return 0;
