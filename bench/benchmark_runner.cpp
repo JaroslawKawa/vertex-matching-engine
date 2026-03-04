@@ -14,8 +14,98 @@
 #include <vector>
 
 using SteadyClock = std::chrono::steady_clock;
+namespace
+{
+    double median(std::vector<double> values)
+    {
+        if (values.empty())
+        {
+            return 0.0;
+        }
+
+        std::sort(values.begin(), values.end());
+        const std::size_t n = values.size();
+        const std::size_t mid = n / 2;
+
+        if (n % 2 == 1)
+        {
+            return values[mid];
+        }
+
+        return (values[mid - 1] + values[mid]) * 0.5;
+    }
+
+}
 
 BenchmarkRunner::BenchmarkRunner(BenchConfig cfg) : cfg_(cfg) {}
+
+std::vector<ScenarioMetrics> BenchmarkRunner::run_scenario(ScenarioKind kind)
+{
+    std::vector<ScenarioMetrics> result;
+    result.reserve(cfg_.repeats);
+    switch (kind)
+    {
+    case ScenarioKind::SingleMarketHighLoad:
+        for (int i = 0; i < cfg_.repeats; ++i)
+        {
+            result.push_back(run_single_market(i));
+        }
+        return result;
+
+    case ScenarioKind::MultiMarketParallelLoad:
+        for (int i = 0; i < cfg_.repeats; ++i)
+        {
+            result.push_back(run_multi_market(i));
+        }
+        return result;
+
+    case ScenarioKind::SharedUsersContention:
+        for (int i = 0; i < cfg_.repeats; ++i)
+        {
+            result.push_back(run_shared_users(i));
+        }
+        return result;
+
+    case ScenarioKind::DisjointUsersContention:
+        for (int i = 0; i < cfg_.repeats; ++i)
+        {
+            result.push_back(run_disjoint_users(i));
+        }
+        return result;
+
+    default:
+    assert(false);
+        return result;
+    }
+}
+
+AggregateMetrics BenchmarkRunner::aggregate(ScenarioKind kind, const std::vector<ScenarioMetrics> &runs) const
+{
+    std::vector<double> ops_per_sec;
+    ops_per_sec.reserve(runs.size());
+    std::vector<double> p50;
+    p50.reserve(runs.size());
+    std::vector<double> p95;
+    p95.reserve(runs.size());
+    std::vector<double> p99;
+    p99.reserve(runs.size());
+
+    for (const auto &metric : runs)
+    {
+        ops_per_sec.push_back(metric.throughput.ops_per_sec);
+        p50.push_back(metric.latency.p50_us);
+        p95.push_back(metric.latency.p95_us);
+        p99.push_back(metric.latency.p99_us);
+    }
+
+    return AggregateMetrics{
+        .scenario = kind,
+        .median_ops_per_sec = median(std::move(ops_per_sec)),
+        .median_p50_us = median(std::move(p50)),
+        .median_p95_us = median(std::move(p95)),
+        .median_p99_us = median(std::move(p99)),
+    };
+}
 
 ScenarioMetrics BenchmarkRunner::run_single_market(int repeat_index)
 {
