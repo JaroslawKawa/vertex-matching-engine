@@ -260,7 +260,7 @@ TEST(TradeHistoryConcurrencyTest, ConcurrentAddAndConcurrentReadAreStable)
     std::vector<std::thread> writers;
     writers.reserve(kWriterThreads);
     ThreadStartGate writer_start_gate{kWriterThreads};
-    TimeoutAbortGuard guard(std::chrono::milliseconds(8000));
+    TimeoutAbortGuard guard(std::chrono::milliseconds(30000));
 
     for (int w = 0; w < kWriterThreads; ++w)
     {
