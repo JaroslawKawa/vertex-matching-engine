@@ -6,7 +6,7 @@ A **C++23 matching engine** demonstrating production-style engineering practices
 
 ---
 
-# Overview
+## Overview
 
 This project implements a simplified **exchange-style trading engine** capable of processing limit and market orders across multiple markets.
 
@@ -14,12 +14,23 @@ The system demonstrates several core engineering concerns typical for trading in
 
 - deterministic **price-time priority matching**
 - **reservation-safe wallet accounting**
-- strongly typed domain model to prevent category errors
-- layered architecture with strict dependency boundaries
-- explicit error modeling with `std::expected`
-- automated verification with unit and concurrency tests
+- **strongly typed domain model** to prevent category errors
+- **layered architecture** with strict dependency boundaries
+- **explicit error modeling** with `std::expected`
+- **automated verification** with unit and concurrency tests
 
 The goal of the project is to explore how **modern C++23 can be used to design deterministic and maintainable trading systems.**
+
+Some parts of the project were developed with **AI assistance**:
+
+- the **system architecture** was designed collaboratively with AI
+- the **entire test suite** was initially generated with AI assistance
+- the **project documentation** was generated with AI assistance
+- selected **CLI utilities** were generated with AI support
+- the **benchmark tool** was partially AI-assisted
+- **CMake configuration** and **CI workflows** were generated with AI assistance
+
+All AI-generated components were **manually reviewed, validated, and refined** to ensure correctness and consistency with the implementation.
 
 ---
 
