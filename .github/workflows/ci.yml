@@ -48,16 +48,17 @@ jobs:
     name: ubuntu-latest / TSAN
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
+  
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+  
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++13
-
+          sudo apt-get install -y cmake ninja-build clang g++
+          clang++ --version
+  
       - name: Configure (TSAN)
         run: >
           cmake -S . -B build-tsan -G Ninja
@@ -65,7 +66,7 @@ jobs:
           -DCMAKE_CXX_COMPILER=clang++
           -DVERTEX_ENABLE_TSAN=ON
           -DCMAKE_CXX_STANDARD=23
-
+  
       - name: Build + Run TSAN tests
         env:
           TSAN_OPTIONS: halt_on_error=1,history_size=7
