@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 #include "vertex/core/types.hpp"
@@ -12,7 +14,17 @@ namespace vertex::application
     class TradeHistory
     {
     private:
-        std::unordered_map<Market, std::vector<Trade>> trades_map_{};
+        struct Shard
+        {
+            std::unordered_map<Market, std::vector<Trade>> trades_map_{};
+            mutable std::mutex mu_;
+        };
+        static constexpr std::size_t kShardCount = 64;
+        std::array<Shard, kShardCount> shards_;
+
+        std::size_t shard_index(const Market &market) const;
+        Shard &shard_for(const Market &market);
+        const Shard &shard_for(const Market &market) const;
 
     public:
         TradeHistory() = default;

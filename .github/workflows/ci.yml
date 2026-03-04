@@ -44,3 +44,30 @@ jobs:
           ctest --test-dir build
           -C ${{ matrix.build_type }}
           --output-on-failure
+  tsan-linux:
+    name: ubuntu-latest / TSAN (GCC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+  
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+  
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++
+  
+      - name: Configure (TSAN)
+        run: >
+          cmake -S . -B build-tsan -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_COMPILER=g++
+          -DVERTEX_ENABLE_TSAN=ON
+          -DCMAKE_CXX_STANDARD=23
+  
+      - name: Build + Run TSAN tests
+        env:
+          TSAN_OPTIONS: halt_on_error=1,history_size=7
+        run: >
+          cmake --build build-tsan --target tsan

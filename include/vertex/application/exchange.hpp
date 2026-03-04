@@ -5,13 +5,16 @@
 #include <expected>
 #include <string>
 #include "vertex/application/trade_history.hpp"
+#include "vertex/application/order_meta_store.hpp"
 #include "vertex/core/id_generator.hpp"
 #include "vertex/core/types.hpp"
 #include "vertex/domain/trade.hpp"
 #include "vertex/domain/user.hpp"
 #include "vertex/domain/wallet.hpp"
-#include "vertex/engine/matching_engine.hpp"
 #include "vertex/engine/order_request.hpp"
+#include "vertex/engine/market_dispatcher.hpp"
+#include "vertex/engine/engine_async_error.hpp"
+
 namespace vertex::application
 {
     using TradeHistory = vertex::application::TradeHistory;
@@ -27,14 +30,16 @@ namespace vertex::application
     using Asset = vertex::core::Asset;
     using Price = vertex::core::Price;
     using Side = vertex::core::Side;
-    using MatchingEngine = vertex::engine::MatchingEngine;
+    using MarketDispatcher = vertex::engine::MarketDispatcher;
     using Market = vertex::core::Market;
     using Execution = vertex::engine::Execution;
     using Trade = vertex::domain::Trade;
     using LimitOrderRequest = vertex::engine::LimitOrderRequest;
     using MarketBuyByQuoteRequest = vertex::engine::MarketBuyByQuoteRequest;
     using MarketSellByBaseRequest = vertex::engine::MarketSellByBaseRequest;
-    
+    using EngineAsyncError = vertex::engine::EngineAsyncError;
+    using WalletError = vertex::domain::WalletError;
+
     enum class WalletOperationError
     {
         UserNotFound,
@@ -53,21 +58,24 @@ namespace vertex::application
     {
         MarketNotListed,
         UserNotFound,
-        WalletNotFound,
         InsufficientFunds,
         InvalidQuantity,
-        InvalidAmount
+        InvalidAmount,
+        WorkerStopped,
+        OrderIdCollision
     };
     enum class CancelOrderError
     {
         UserNotFound,
         OrderNotFound,
-        NotOrderOwner
+        NotOrderOwner,
+        MarketNotFound,
+        WorkerStopped
     };
     enum class RegisterMarketError
     {
         AlreadyListed,
-        InvalidMarket
+        WorkerStopped
     };
     struct OrderPlacementResult
     {
@@ -81,24 +89,46 @@ namespace vertex::application
         Side side;
         Quantity remaining_quantity;
     };
+
+    struct Account
+    {
+        User user;
+        Wallet wallet;
+        std::mutex mu{};
+
+        Account(User u, Wallet w)
+            : user(std::move(u)),
+              wallet(std::move(w))
+        {
+        }
+    };
+
+    class ExchangeTestAccess;
+
     class Exchange
+
     {
     private:
-        std::unordered_map<UserId, User> users_;
-        std::unordered_map<UserId, Wallet> wallets_;
-        std::unordered_map<OrderId, UserId> orders_;
-        std::unordered_map<OrderId, Market> orders_market_;
+        friend class ExchangeTestAccess;
+
+        OrderMetaStore order_meta_store_;
+
+        std::unordered_map<UserId, std::shared_ptr<Account>> accounts_;
+        mutable std::shared_mutex accounts_mu_;
 
         UserIdGenerator user_id_generator_;
+        std::mutex user_id_generator_mu_;
         OrderIdGenerator order_id_generator_;
+        std::mutex order_id_generator_mu_;
         TradeIdGenerator trade_id_generator_;
+        std::mutex trade_id_generator_mu_;
 
-        MatchingEngine matching_engine_{};
+        MarketDispatcher market_dispatcher_{};
         TradeHistory trade_history_{};
 
-        OrderPlacementResult execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
-        OrderPlacementResult execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
-        
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
+
     public:
         Exchange() = default;
         std::expected<UserId, UserError> create_user(std::string name);
