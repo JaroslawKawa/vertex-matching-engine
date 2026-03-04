@@ -1,0 +1,75 @@
+name: bench-smoke
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bench-smoke:
+    name: ubuntu-latest / bench-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ python3
+
+      - name: Configure (CMake, Release)
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=23
+
+      - name: Build vertex_bench
+        run: |
+          cmake --build build --target vertex_bench
+
+      - name: Run benchmark (smoke)
+        run: |
+          mkdir -p bench_out
+
+          ./build/vertex_bench \
+            --warmup 0 --measure 1 --repeats 1 --quiet \
+            --json-out bench_out/smoke.json
+
+          python3 bench/smoke_to_md.py bench_out/smoke.json > bench_out/summary.md
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-smoke-pr-${{ github.event.pull_request.number }}
+          path: bench_out/
+          retention-days: 14
+
+      - name: Comment PR with benchmark summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const pr = context.payload.pull_request.number;
+            const summary = fs.readFileSync("bench_out/summary.md", "utf8");
+
+            const body = [
+              "✅ **bench-smoke** finished (no performance gating).",
+              "",
+              "Parameters: `--warmup 0 --measure 1 --repeats 1 --quiet`",
+              "",
+              summary,
+              "",
+              `📦 Artifact: **bench-smoke-pr-${pr}**`
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr,
+              body
+            });
