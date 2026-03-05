@@ -130,6 +130,7 @@ namespace vertex::application
 
         std::expected<OrderPlacementResult, PlaceOrderError> execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
         std::expected<OrderPlacementResult, PlaceOrderError> execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
+        std::optional<PlaceOrderError> validate_order(const UserId user_id, const Market &market, std::optional<Price> price, const Quantity quantity) const;
 
     public:
         Exchange() = default;

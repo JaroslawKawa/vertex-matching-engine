@@ -296,20 +296,12 @@ namespace vertex::application
         return account->wallet.reserved_balance(asset);
     }
 
-    std::expected<OrderPlacementResult, PlaceOrderError> Exchange::place_limit_order(const UserId user_id, const Market &market, Side side, Price price, const Quantity quantity)
+    std::expected<OrderPlacementResult, PlaceOrderError> Exchange::place_limit_order(const UserId user_id, const Market &market, const Side side, const Price price, const Quantity quantity)
     {
+        auto order_validation_error = validate_order(user_id, market, price, quantity);
 
-        if (!user_id.is_valid())
-            return std::unexpected(PlaceOrderError::UserNotFound);
-
-        if (!market_dispatcher_.has_market(market))
-            return std::unexpected(PlaceOrderError::MarketNotListed);
-
-        if (quantity <= 0)
-            return std::unexpected(PlaceOrderError::InvalidQuantity);
-
-        if (price <= 0)
-            return std::unexpected(PlaceOrderError::InvalidAmount);
+        if (order_validation_error)
+            return std::unexpected(order_validation_error.value());
 
         OrderPlacementResult order_result;
         Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
@@ -458,14 +450,10 @@ namespace vertex::application
 
     std::expected<OrderPlacementResult, PlaceOrderError> Exchange::execute_market_order(const UserId user_id, const Market &market, const Side side, const Quantity order_quantity)
     {
-        if (!user_id.is_valid())
-            return std::unexpected(PlaceOrderError::UserNotFound);
+        auto order_validation_error = validate_order(user_id, market, std::nullopt, order_quantity);
 
-        if (!market_dispatcher_.has_market(market))
-            return std::unexpected(PlaceOrderError::MarketNotListed);
-
-        if (order_quantity <= 0)
-            return std::unexpected(PlaceOrderError::InvalidQuantity);
+        if (order_validation_error)
+            return std::unexpected(order_validation_error.value());
 
         Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
 
@@ -843,5 +831,24 @@ namespace vertex::application
         }
 
         return {};
+    }
+
+    std::optional<PlaceOrderError> Exchange::validate_order(const UserId user_id, const Market &market, const std::optional<Price> price, const Quantity quantity) const
+    {
+        if (!user_id.is_valid())
+            return PlaceOrderError::UserNotFound;
+
+        if (!market_dispatcher_.has_market(market))
+            return PlaceOrderError::MarketNotListed;
+
+        if (quantity <= 0)
+            return PlaceOrderError::InvalidQuantity;
+
+        if (price)
+        {
+            if (price <= 0)
+                return PlaceOrderError::InvalidAmount;
+        }
+        return std::nullopt;
     }
 } // namespace vertex::application
