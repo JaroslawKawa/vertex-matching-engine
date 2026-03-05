@@ -363,26 +363,7 @@ namespace vertex::application
                 auto [buyer, seller] = get_accounts(buyer_user_id, seller_user_id);
                 assert((buyer != nullptr && seller != nullptr) && "Invariant violated: buyer or seller not exist");
 
-                {
-                    auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
-                    const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
-                    assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
-
-                    assert(execution.buy_order_limit_price.has_value() && "Invariant violated: limit settlement requires buy limit price");
-                    Quantity refund = execution.buy_order_limit_price.value() * execution.quantity - execution.execution_price * execution.quantity;
-                    if (0 < refund)
-                    {
-                        const auto buyer_release_result = buyer->wallet.release(market.quote(), refund);
-                        assert(buyer_release_result && "Invariant violated: buyer refund release failed");
-                    }
-                    const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
-                    assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-                    
-                    const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
-                    assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
-                    const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.execution_price * execution.quantity);
-                    assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
-                }
+                settle_trade(*buyer, *seller, execution, market);
 
                 order_result.remaining_quantity -= execution.quantity;
                 order_result.filled_quantity += execution.quantity;
@@ -519,17 +500,8 @@ namespace vertex::application
             std::shared_ptr<Account> seller = get_account(seller_user_id);
             assert(seller != nullptr && "Invariant violated: seller not exist");
 
-            {
-                auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
-                const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
-                assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
-                const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
-                assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-                const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
-                assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
-                const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
-                assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
-            }
+            settle_trade(*buyer, *seller, execution, market);
+
             order_result.remaining_quantity -= execution.quantity * execution.execution_price;
             order_result.filled_quantity += execution.quantity * execution.execution_price;
 
@@ -644,17 +616,8 @@ namespace vertex::application
             std::shared_ptr<Account> buyer = get_account(buyer_user_id);
             assert(buyer != nullptr && "Invariant violated: buyer not exist");
 
-            {
-                auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
-                const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
-                assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
-                const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
-                assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
-                const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
-                assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
-                const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.quantity * execution.execution_price);
-                assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
-            }
+            settle_trade(*buyer, *seller, execution, market);
+
             order_result.remaining_quantity -= execution.quantity;
             order_result.filled_quantity += execution.quantity;
 
@@ -739,7 +702,7 @@ namespace vertex::application
         }
 
         std::shared_ptr<Account> account = get_account(user_id);
-        if(account==nullptr)
+        if (account == nullptr)
             return std::unexpected(CancelOrderError::UserNotFound);
 
         CancelOrderResult result;
@@ -823,6 +786,32 @@ namespace vertex::application
         if (account_it_2 != accounts_.end())
             result.second = account_it_2->second;
         return result;
+    }
+
+    void Exchange::settle_trade(Account &buyer, Account &seller, const Execution &execution, const Market &market)
+    {
+        {
+            auto locks = lock_two_accounts(buyer.user.id(), buyer, seller.user.id(), seller);
+            const auto buyer_consume_result = buyer.wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
+            assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
+
+            if (execution.buy_order_limit_price)
+            {
+                Quantity refund = execution.buy_order_limit_price.value() * execution.quantity - execution.execution_price * execution.quantity;
+                if (0 < refund)
+                {
+                    const auto buyer_release_result = buyer.wallet.release(market.quote(), refund);
+                    assert(buyer_release_result && "Invariant violated: buyer refund release failed");
+                }
+            }
+            const auto buyer_deposit_result = buyer.wallet.deposit(market.base(), execution.quantity);
+            assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+
+            const auto seller_consume_result = seller.wallet.consume_reserved(market.base(), execution.quantity);
+            assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
+            const auto seller_deposit_result = seller.wallet.deposit(market.quote(), execution.execution_price * execution.quantity);
+            assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
+        }
     }
 
 } // namespace vertex::application
