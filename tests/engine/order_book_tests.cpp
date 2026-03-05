@@ -270,7 +270,7 @@ TEST(OrderBookTest, ExecuteMarketBuyQuoteBudgetSweepsAsksAndLeavesOnlyRestingRem
     EXPECT_EQ(executions[0].buy_order_id, OrderId{93});
     EXPECT_EQ(executions[0].sell_order_id, OrderId{91});
     EXPECT_EQ(executions[0].execution_price, 100);
-    EXPECT_EQ(executions[0].buy_order_limit_price, 100);
+    EXPECT_FALSE(executions[0].buy_order_limit_price.has_value());
     EXPECT_EQ(executions[0].quantity, 2);
     EXPECT_FALSE(executions[0].buy_fully_filled);
     EXPECT_TRUE(executions[0].sell_fully_filled);
@@ -278,7 +278,7 @@ TEST(OrderBookTest, ExecuteMarketBuyQuoteBudgetSweepsAsksAndLeavesOnlyRestingRem
     EXPECT_EQ(executions[1].buy_order_id, OrderId{93});
     EXPECT_EQ(executions[1].sell_order_id, OrderId{92});
     EXPECT_EQ(executions[1].execution_price, 101);
-    EXPECT_EQ(executions[1].buy_order_limit_price, 101);
+    EXPECT_FALSE(executions[1].buy_order_limit_price.has_value());
     EXPECT_EQ(executions[1].quantity, 2);
     EXPECT_TRUE(executions[1].buy_fully_filled);
     EXPECT_FALSE(executions[1].sell_fully_filled);
