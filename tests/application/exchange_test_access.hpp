@@ -12,5 +12,15 @@ namespace vertex::application
         {
             return OrderMetaStoreTestAccess::snapshot(exchange.order_meta_store_);
         }
+
+        static std::optional<OrderRecord> order_history_find(const Exchange &exchange, OrderId id)
+        {
+            return exchange.order_history_.find(id);
+        }
+
+        static std::optional<std::vector<OrderRecord>> order_history_find_by_user(const Exchange &exchange, UserId user_id)
+        {
+            return exchange.order_history_.find_by_user(user_id);
+        }
     };
 } // namespace vertex::application
