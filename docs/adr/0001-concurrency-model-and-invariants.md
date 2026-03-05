@@ -99,10 +99,10 @@ The exchange must stay correct under concurrent API calls while preserving match
 3. Submit to worker and wait on `future.get()` (no account/store lock held).
 4. On submit error: rollback full taker reservation.
 5. Settle executions with deterministic two-account locking.
-6. Persist completed records:
+6. Release unused taker reservation remainder (if any).
+7. Persist completed records:
    - filled counterpart limits moved from `OrderMetaStore` to `OrderHistory`,
    - market taker inserted into `OrderHistory` as `Filled`, `PartiallyFilled`, or `Unfilled`.
-7. Release unused taker reservation remainder.
 
 ### cancel_order
 

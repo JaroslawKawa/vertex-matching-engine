@@ -1,6 +1,6 @@
 # Application Layer
 
-This document reflects the current implementation in `include/vertex/application/*` and `src/application/*`.
+This document reflects the current implementation in `include/vertex/application/*` and `src/application/exchange/*`.
 
 ## Scope
 
@@ -158,8 +158,8 @@ API:
    - `Unfilled` when `filled_quantity == 0`,
    - `PartiallyFilled` when partially executed and remainder released,
    - `Filled` when fully executed.
-8. Insert taker record into `order_history_`.
-9. Release unused taker reservation.
+8. Release unused taker reservation (if any remainder exists).
+9. Insert taker record into `order_history_`.
 10. On submit failure: rollback full initial reservation.
 
 Notes:
