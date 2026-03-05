@@ -45,6 +45,7 @@ The exchange must stay correct under concurrent API calls while preserving match
 - id generators (+ generator mutexes)
 - `OrderMetaStore` (sharded internal locking)
 - `TradeHistory` (sharded internal locking)
+- `OrderHistory` (sharded internal locking)
 - one `MarketDispatcher`
 
 ### MarketDispatcher owns
@@ -88,7 +89,8 @@ The exchange must stay correct under concurrent API calls while preserving match
    - lock buyer/seller in `UserId` order,
    - settle wallets,
    - append trade,
-   - erase fully-filled resting order metadata.
+   - update per-order aggregates in `OrderMetaStore`,
+   - move fully-filled orders to `OrderHistory`.
 
 ### execute_market_order
 
@@ -97,7 +99,10 @@ The exchange must stay correct under concurrent API calls while preserving match
 3. Submit to worker and wait on `future.get()` (no account/store lock held).
 4. On submit error: rollback full taker reservation.
 5. Settle executions with deterministic two-account locking.
-6. Release unused taker reservation remainder.
+6. Persist completed records:
+   - filled counterpart limits moved from `OrderMetaStore` to `OrderHistory`,
+   - market taker inserted into `OrderHistory` as `Filled`, `PartiallyFilled`, or `Unfilled`.
+7. Release unused taker reservation remainder.
 
 ### cancel_order
 
@@ -108,7 +113,7 @@ The exchange must stay correct under concurrent API calls while preserving match
 5. On success:
    - lock owner account,
    - release exact remaining reservation,
-   - erase metadata entry.
+   - move closed order from `OrderMetaStore` to `OrderHistory` as `Canceled`.
 
 ## Failure Semantics
 
