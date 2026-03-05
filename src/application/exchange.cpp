@@ -52,6 +52,23 @@ namespace vertex::application
             }
         }
 
+        WalletOperationError map_to_wallet_error(vertex::domain::WalletError error)
+        {
+            switch (error)
+            {
+            case vertex::domain::WalletError::InsufficientReserved:
+                return WalletOperationError::InsufficientReserved;
+
+            case vertex::domain::WalletError::InsufficientFunds:
+                return WalletOperationError::InsufficientFunds;
+
+            case vertex::domain::WalletError::InvalidAmount:
+                return WalletOperationError::InvalidQuantity;
+            default:
+                assert(false && "Unexpected WalletError in release");
+                std::terminate();
+            }
+        }
         struct TwoAccountLocks
         {
             std::unique_lock<std::mutex> first;
@@ -137,19 +154,7 @@ namespace vertex::application
         }
 
         if (!result)
-        {
-            auto wallet_error = result.error();
-            switch (wallet_error)
-
-            {
-            case WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidQuantity);
-
-            default:
-                assert(false && "Unexpected WalletError in deposit");
-                std::terminate();
-            }
-        }
+            return std::unexpected(map_to_wallet_error(result.error()));
 
         return {};
     }
@@ -168,21 +173,8 @@ namespace vertex::application
         }
 
         if (!result)
-        {
-            auto wallet_error = result.error();
-            switch (wallet_error)
-            {
-            case vertex::domain::WalletError::InsufficientFunds:
-                return std::unexpected(WalletOperationError::InsufficientFunds);
+            return std::unexpected(map_to_wallet_error(result.error()));
 
-            case vertex::domain::WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidQuantity);
-
-            default:
-                assert(false && "Unexpected WalletError in withdraw");
-                std::terminate();
-            }
-        }
         return {};
     }
 
@@ -200,21 +192,8 @@ namespace vertex::application
         }
 
         if (!result)
-        {
-            auto wallet_error = result.error();
-            switch (wallet_error)
-            {
-            case vertex::domain::WalletError::InsufficientFunds:
-                return std::unexpected(WalletOperationError::InsufficientFunds);
+            return std::unexpected(map_to_wallet_error(result.error()));
 
-            case vertex::domain::WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidQuantity);
-
-            default:
-                assert(false && "Unexpected WalletError in reserve");
-                std::terminate();
-            }
-        }
         return {};
     }
 
@@ -232,21 +211,8 @@ namespace vertex::application
         }
 
         if (!result)
-        {
-            auto wallet_error = result.error();
-            switch (wallet_error)
-            {
-            case vertex::domain::WalletError::InsufficientReserved:
-                return std::unexpected(WalletOperationError::InsufficientReserved);
+            return std::unexpected(map_to_wallet_error(result.error()));
 
-            case vertex::domain::WalletError::InvalidAmount:
-                return std::unexpected(WalletOperationError::InvalidQuantity);
-
-            default:
-                assert(false && "Unexpected WalletError in release");
-                std::terminate();
-            }
-        }
         return {};
     }
 
