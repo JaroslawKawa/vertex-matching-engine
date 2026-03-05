@@ -6,6 +6,7 @@
 #include <string>
 #include "vertex/application/trade_history.hpp"
 #include "vertex/application/order_meta_store.hpp"
+#include "vertex/application/order_history.hpp"
 #include "vertex/core/id_generator.hpp"
 #include "vertex/core/types.hpp"
 #include "vertex/domain/trade.hpp"
@@ -125,6 +126,7 @@ namespace vertex::application
 
         MarketDispatcher market_dispatcher_{};
         TradeHistory trade_history_{};
+        OrderHistory order_history_{};
 
         std::expected<OrderPlacementResult, PlaceOrderError> execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
         std::expected<OrderPlacementResult, PlaceOrderError> execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);

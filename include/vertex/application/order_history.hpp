@@ -22,6 +22,8 @@ namespace vertex::application
     enum class OrderStatus
     {
         Filled,
+        PartiallyFilled,
+        Unfilled,
         Canceled
     };
 
@@ -43,7 +45,7 @@ namespace vertex::application
 
         std::optional<double> avg_price; // executed_quote_qty / executed_base_qty
         std::size_t fill_count{0};
-        std::vector<TradeId> trade_ids;
+        std::vector<TradeId> trade_ids{};
     };
 
     class OrderHistory
