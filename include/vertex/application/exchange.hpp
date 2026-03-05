@@ -146,6 +146,7 @@ namespace vertex::application
         void settle_trade(Account &buyer, Account &seller, const Execution &execution, const Market &market);
         std::expected<PreparedLimitOrder, PlaceOrderError> prepare_and_reserve_limit_order(const UserId &user_id, const Market &market, const Side &side, const Price &price, const Quantity &quantity);
         void rollback_release_or_assert(Account &account,const Asset &asset,const Quantity quantity, const std::string &context);
+        
     public:
         Exchange() = default;
         std::expected<UserId, UserError> create_user(std::string name);
