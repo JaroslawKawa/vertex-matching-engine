@@ -1,24 +1,28 @@
 #pragma once
 
-#include <unordered_map>
-#include <unordered_set>
 #include <expected>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <shared_mutex>
 #include <string>
-#include "vertex/application/trade_history.hpp"
-#include "vertex/application/order_meta_store.hpp"
+#include <unordered_map>
+#include <utility>
+
 #include "vertex/application/order_history.hpp"
+#include "vertex/application/order_meta_store.hpp"
+#include "vertex/application/trade_history.hpp"
 #include "vertex/core/id_generator.hpp"
 #include "vertex/core/types.hpp"
 #include "vertex/domain/trade.hpp"
 #include "vertex/domain/user.hpp"
 #include "vertex/domain/wallet.hpp"
-#include "vertex/engine/order_request.hpp"
-#include "vertex/engine/market_dispatcher.hpp"
 #include "vertex/engine/engine_async_error.hpp"
+#include "vertex/engine/market_dispatcher.hpp"
+#include "vertex/engine/order_request.hpp"
 
 namespace vertex::application
 {
-    using TradeHistory = vertex::application::TradeHistory;
     using UserId = vertex::core::UserId;
     using UserIdGenerator = vertex::core::IdGenerator<UserId>;
     using User = vertex::domain::User;
@@ -47,14 +51,15 @@ namespace vertex::application
         InsufficientFunds,
         InsufficientReserved,
         InvalidQuantity
-
     };
+
     enum class UserError
     {
         UserNotFound,
         UserAlreadyExists,
         EmptyName
     };
+
     enum class PlaceOrderError
     {
         MarketNotListed,
@@ -65,6 +70,7 @@ namespace vertex::application
         WorkerStopped,
         OrderIdCollision
     };
+
     enum class CancelOrderError
     {
         UserNotFound,
@@ -73,17 +79,20 @@ namespace vertex::application
         MarketNotFound,
         WorkerStopped
     };
+
     enum class RegisterMarketError
     {
         AlreadyListed,
         WorkerStopped
     };
+
     struct OrderPlacementResult
     {
         OrderId order_id;
         Quantity filled_quantity;
         Quantity remaining_quantity;
     };
+
     struct CancelOrderResult
     {
         OrderId id;
@@ -107,7 +116,6 @@ namespace vertex::application
     class ExchangeTestAccess;
 
     class Exchange
-
     {
     private:
         friend class ExchangeTestAccess;
@@ -128,11 +136,43 @@ namespace vertex::application
         TradeHistory trade_history_{};
         OrderHistory order_history_{};
 
-        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
-        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
+        struct PreparedLimitOrder
+        {
+            std::shared_ptr<Account> account;
+            Asset asset_to_reserve;
+            Quantity quantity_to_reserve;
+            OrderId id;
+            LimitOrderRequest order_request;
+            OrderMeta meta;
+        };
+
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_buy_by_quote(
+            const UserId user_id,
+            const Market &market,
+            const Quantity order_quantity);
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_sell_by_base(
+            const UserId user_id,
+            const Market &market,
+            const Quantity order_quantity);
+        std::optional<PlaceOrderError> validate_order(
+            const UserId user_id,
+            const Market &market,
+            std::optional<Price> price,
+            const Quantity quantity) const;
+        std::shared_ptr<Account> get_account(UserId id) const;
+        std::pair<std::shared_ptr<Account>, std::shared_ptr<Account>> get_accounts(UserId id_1, UserId id_2) const;
+        void settle_trade(Account &buyer, Account &seller, const Execution &execution, const Market &market);
+        std::expected<PreparedLimitOrder, PlaceOrderError> prepare_and_reserve_limit_order(
+            const UserId &user_id,
+            const Market &market,
+            const Side &side,
+            const Price &price,
+            const Quantity &quantity);
+        void rollback_release_or_assert(Account &account, const Asset &asset, const Quantity quantity, const std::string &context);
 
     public:
         Exchange() = default;
+
         std::expected<UserId, UserError> create_user(std::string name);
         std::expected<std::string, UserError> get_user_name(const UserId user_id) const;
         bool user_exists(const UserId user_id) const;
@@ -144,8 +184,17 @@ namespace vertex::application
         std::expected<Quantity, WalletOperationError> free_balance(const UserId user_id, const Asset &asset) const;
         std::expected<Quantity, WalletOperationError> reserved_balance(const UserId user_id, const Asset &asset) const;
 
-        std::expected<OrderPlacementResult, PlaceOrderError> place_limit_order(const UserId user_id, const Market &market, const Side side, const Price price, const Quantity quantity);
-        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_order(const UserId user_id, const Market &market, const Side side, const Quantity order_quantity);
+        std::expected<OrderPlacementResult, PlaceOrderError> place_limit_order(
+            const UserId user_id,
+            const Market &market,
+            const Side side,
+            const Price price,
+            const Quantity quantity);
+        std::expected<OrderPlacementResult, PlaceOrderError> execute_market_order(
+            const UserId user_id,
+            const Market &market,
+            const Side side,
+            const Quantity order_quantity);
         std::expected<CancelOrderResult, CancelOrderError> cancel_order(const UserId user_id, const OrderId order_id);
         std::expected<void, RegisterMarketError> register_market(const Market &market);
     };

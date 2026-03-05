@@ -105,7 +105,7 @@ Internal structures:
 - `OrderId sell_order_id`
 - `Quantity quantity` (base quantity)
 - `Price execution_price`
-- `Price buy_order_limit_price`
+- `std::optional<Price> buy_order_limit_price`
 - `bool buy_fully_filled`
 - `bool sell_fully_filled`
 
@@ -115,6 +115,7 @@ Behavior:
 - limit sell matches highest bids while `bid >= limit_price`,
 - market buy consumes asks by quote budget,
 - market sell consumes bids by base quantity,
+- `buy_order_limit_price` is set when the buy side is a limit order; for market-buy taker executions it is `nullopt`,
 - filled resting orders are removed from price level and `index_`,
 - empty price levels are erased,
 - market remainder is not inserted into the book.
