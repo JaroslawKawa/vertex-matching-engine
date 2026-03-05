@@ -125,14 +125,10 @@ namespace vertex::application
 
     std::expected<void, WalletOperationError> Exchange::deposit(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(WalletOperationError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(WalletOperationError::UserNotFound);
 
         std::expected<void, WalletError> result;
         {
@@ -160,14 +156,10 @@ namespace vertex::application
 
     std::expected<void, WalletOperationError> Exchange::withdraw(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(WalletOperationError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(WalletOperationError::UserNotFound);
 
         std::expected<void, WalletError> result;
         {
@@ -196,14 +188,10 @@ namespace vertex::application
 
     std::expected<void, WalletOperationError> Exchange::reserve(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(WalletOperationError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(WalletOperationError::UserNotFound);
 
         std::expected<void, WalletError> result;
         {
@@ -232,14 +220,10 @@ namespace vertex::application
 
     std::expected<void, WalletOperationError> Exchange::release(const UserId user_id, const Asset &asset, const Quantity quantity)
     {
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(WalletOperationError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(WalletOperationError::UserNotFound);
 
         std::expected<void, WalletError> result;
         {
@@ -268,14 +252,10 @@ namespace vertex::application
 
     std::expected<Quantity, WalletOperationError> Exchange::free_balance(const UserId user_id, const Asset &asset) const
     {
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(WalletOperationError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(WalletOperationError::UserNotFound);
 
         std::lock_guard lock(account->mu);
         return account->wallet.free_balance(asset);
@@ -283,14 +263,10 @@ namespace vertex::application
 
     std::expected<Quantity, WalletOperationError> Exchange::reserved_balance(const UserId user_id, const Asset &asset) const
     {
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(WalletOperationError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(WalletOperationError::UserNotFound);
 
         std::lock_guard lock(account->mu);
         return account->wallet.reserved_balance(asset);
@@ -307,14 +283,10 @@ namespace vertex::application
         Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
         Quantity quantity_to_reserve = (side == Side::Buy) ? price * quantity : quantity;
 
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(PlaceOrderError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(PlaceOrderError::UserNotFound);
 
         std::expected<void, WalletError> reserve_result;
         {
@@ -388,14 +360,9 @@ namespace vertex::application
                 assert(seller_order_meta != std::nullopt);
                 UserId seller_user_id = seller_order_meta->owner;
 
-                std::shared_ptr<Account> buyer;
-                std::shared_ptr<Account> seller;
+                auto [buyer, seller] = get_accounts(buyer_user_id, seller_user_id);
+                assert((buyer != nullptr && seller != nullptr) && "Invariant violated: buyer or seller not exist");
 
-                {
-                    std::shared_lock lock(accounts_mu_);
-                    buyer = accounts_.find(buyer_user_id)->second;
-                    seller = accounts_.find(seller_user_id)->second;
-                }
                 {
                     auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
                     const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
@@ -457,14 +424,11 @@ namespace vertex::application
 
         Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
 
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(PlaceOrderError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+
+        if (account == nullptr)
+            return std::unexpected(PlaceOrderError::UserNotFound);
+
         std::expected<void, WalletError> reserve_result;
         {
             std::lock_guard lock(account->mu);
@@ -550,14 +514,9 @@ namespace vertex::application
             assert(seller_order_meta != std::nullopt);
             UserId seller_user_id = seller_order_meta->owner;
 
-            std::shared_ptr<Account> seller;
-            {
-                std::shared_lock lock(accounts_mu_);
-                auto account_it = accounts_.find(seller_user_id);
-                if (account_it == accounts_.end())
-                    return std::unexpected(PlaceOrderError::UserNotFound);
-                seller = account_it->second;
-            }
+            std::shared_ptr<Account> seller = get_account(seller_user_id);
+            assert(seller != nullptr && "Invariant violated: seller not exist");
+
             {
                 auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
                 const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.quantity * execution.execution_price);
@@ -680,14 +639,8 @@ namespace vertex::application
             assert(buyer_order_meta != std::nullopt);
             UserId buyer_user_id = buyer_order_meta->owner;
 
-            std::shared_ptr<Account> buyer;
-            {
-                std::shared_lock lock(accounts_mu_);
-                auto account_it = accounts_.find(buyer_user_id);
-                if (account_it == accounts_.end())
-                    return std::unexpected(PlaceOrderError::UserNotFound);
-                buyer = account_it->second;
-            }
+            std::shared_ptr<Account> buyer = get_account(buyer_user_id);
+            assert(buyer != nullptr && "Invariant violated: buyer not exist");
 
             {
                 auto locks = lock_two_accounts(buyer->user.id(), *buyer, seller->user.id(), *seller);
@@ -783,14 +736,10 @@ namespace vertex::application
             return std::unexpected(CancelOrderError::OrderNotFound);
         }
 
-        std::shared_ptr<Account> account;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(CancelOrderError::UserNotFound);
-            account = account_it->second;
-        }
+        std::shared_ptr<Account> account = get_account(user_id);
+        if(account==nullptr)
+            return std::unexpected(CancelOrderError::UserNotFound);
+
         CancelOrderResult result;
         if (cancel_result->side == Side::Buy)
         {
@@ -851,4 +800,27 @@ namespace vertex::application
         }
         return std::nullopt;
     }
+
+    std::shared_ptr<Account> Exchange::get_account(UserId id) const
+    {
+        std::shared_lock lock(accounts_mu_);
+        auto account_it = accounts_.find(id);
+        if (account_it == accounts_.end())
+            return nullptr;
+        return account_it->second;
+    }
+
+    std::pair<std::shared_ptr<Account>, std::shared_ptr<Account>> Exchange::get_accounts(UserId id_1, UserId id_2) const
+    {
+        std::pair<std::shared_ptr<Account>, std::shared_ptr<Account>> result;
+        std::shared_lock lock(accounts_mu_);
+        auto account_it_1 = accounts_.find(id_1);
+        if (account_it_1 != accounts_.end())
+            result.first = account_it_1->second;
+        auto account_it_2 = accounts_.find(id_2);
+        if (account_it_2 != accounts_.end())
+            result.second = account_it_2->second;
+        return result;
+    }
+
 } // namespace vertex::application
