@@ -338,7 +338,7 @@ namespace vertex::application
             order_id = order_id_generator_.next();
         }
 
-        if (!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side = side, .price = price}))
+        if (!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side = side, .price = price, .requested_base_qty = quantity}))
         {
             std::expected<void, WalletError> rollback_release_result;
             {
@@ -346,7 +346,6 @@ namespace vertex::application
                 rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
             }
             assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
-            order_meta_store_.erase(order_id);
 
             return std::unexpected(PlaceOrderError::OrderIdCollision);
         }
@@ -434,15 +433,22 @@ namespace vertex::application
                 }
                 Trade trade{trade_id, buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
 
+                order_meta_store_.append_fill(execution.buy_order_id, trade_id, execution.quantity, execution.execution_price);
+                order_meta_store_.append_fill(execution.sell_order_id, trade_id, execution.quantity, execution.execution_price);
+
                 trade_history_.add(std::move(trade));
 
                 if (execution.buy_fully_filled)
                 {
-                    order_meta_store_.erase(execution.buy_order_id);
+                    auto record = order_meta_store_.close_and_extract(execution.buy_order_id, OrderStatus::Filled);
+                    if (record)
+                        order_history_.try_insert(std::move(record.value()));
                 }
                 if (execution.sell_fully_filled)
                 {
-                    order_meta_store_.erase(execution.sell_order_id);
+                    auto record = order_meta_store_.close_and_extract(execution.sell_order_id, OrderStatus::Filled);
+                    if (record)
+                        order_history_.try_insert(std::move(record.value()));
                 }
             }
         }
@@ -541,6 +547,14 @@ namespace vertex::application
             buyer = account_it->second;
         }
 
+        OrderRecord taker_record{.id = order_result.order_id,
+                                 .user_id = buyer->user.id(),
+                                 .market = market,
+                                 .side = Side::Buy,
+                                 .type = OrderType::MarketOrder,
+                                 .status = OrderStatus::Filled,
+                                 .requested_quote_budget = order_quantity};
+
         for (const auto &execution : execution_result)
         {
             OrderId seller_order_id = execution.sell_order_id;
@@ -570,26 +584,55 @@ namespace vertex::application
             order_result.remaining_quantity -= execution.quantity * execution.execution_price;
             order_result.filled_quantity += execution.quantity * execution.execution_price;
 
+            taker_record.executed_base_qty += execution.quantity;
+            taker_record.executed_quote_qty += execution.quantity * execution.execution_price;
+            taker_record.fill_count += 1;
+
             TradeId trade_id;
             {
                 std::lock_guard lock(trade_id_generator_mu_);
                 trade_id = trade_id_generator_.next();
             }
+
             Trade trade{trade_id, user_id, seller_user_id, order_result.order_id, seller_order_id, market, execution.quantity, execution.execution_price};
+
+            order_meta_store_.append_fill(seller_order_id, trade_id, execution.quantity, execution.execution_price);
+            taker_record.trade_ids.push_back(trade_id);
 
             trade_history_.add(std::move(trade));
 
             if (execution.sell_fully_filled)
             {
-                order_meta_store_.erase(execution.sell_order_id);
+                auto record = order_meta_store_.close_and_extract(execution.sell_order_id, OrderStatus::Filled);
+                if (record)
+                    order_history_.try_insert(std::move(record.value()));
             }
         }
+
+        std::optional<double> avg_price;
+        if (taker_record.executed_base_qty != 0)
+        {
+            avg_price = std::optional<double>(static_cast<double>(taker_record.executed_quote_qty) / taker_record.executed_base_qty);
+        }
+        taker_record.avg_price = avg_price;
+
         if (order_result.remaining_quantity > 0)
         {
+            if (order_result.filled_quantity == 0)
+            {
+                taker_record.status = OrderStatus::Unfilled;
+            }
+            else
+            {
+                taker_record.status = OrderStatus::PartiallyFilled;
+            }
             std::lock_guard lock(buyer->mu);
             const auto taker_release_result = buyer->wallet.release(market.quote(), order_result.remaining_quantity);
             assert(taker_release_result && "Invariant violated: taker release failed after market buy");
         }
+
+        order_history_.try_insert(std::move(taker_record));
+
         return order_result;
     }
 
@@ -633,6 +676,14 @@ namespace vertex::application
             seller = account_it->second;
         }
 
+        OrderRecord taker_record{.id = order_result.order_id,
+                                 .user_id = seller->user.id(),
+                                 .market = market,
+                                 .side = Side::Sell,
+                                 .type = OrderType::MarketOrder,
+                                 .status = OrderStatus::Filled,
+                                 .requested_base_qty = order_quantity};
+
         for (const auto &execution : execution_result)
         {
             OrderId buyer_order_id = execution.buy_order_id;
@@ -664,6 +715,9 @@ namespace vertex::application
             order_result.remaining_quantity -= execution.quantity;
             order_result.filled_quantity += execution.quantity;
 
+            taker_record.executed_base_qty += execution.quantity;
+            taker_record.executed_quote_qty += execution.quantity * execution.execution_price;
+            taker_record.fill_count += 1;
             TradeId trade_id;
             {
                 std::lock_guard lock(trade_id_generator_mu_);
@@ -671,19 +725,43 @@ namespace vertex::application
             }
             Trade trade{trade_id, buyer_user_id, user_id, buyer_order_id, order_result.order_id, market, execution.quantity, execution.execution_price};
 
+            taker_record.trade_ids.push_back(trade_id);
+            order_meta_store_.append_fill(buyer_order_id, trade_id, execution.quantity, execution.execution_price);
+
             trade_history_.add(std::move(trade));
 
             if (execution.buy_fully_filled)
             {
-                order_meta_store_.erase(execution.buy_order_id);
+                auto record = order_meta_store_.close_and_extract(execution.buy_order_id, OrderStatus::Filled);
+                if (record)
+                    order_history_.try_insert(std::move(record.value()));
             }
         }
+
+        std::optional<double> avg_price;
+        if (taker_record.executed_base_qty != 0)
+        {
+            avg_price = std::optional<double>(static_cast<double>(taker_record.executed_quote_qty) / taker_record.executed_base_qty);
+        }
+
+        taker_record.avg_price = avg_price;
+
         if (order_result.remaining_quantity > 0)
         {
+            if (order_result.filled_quantity == 0)
+            {
+                taker_record.status = OrderStatus::Unfilled;
+            }
+            else
+            {
+                taker_record.status = OrderStatus::PartiallyFilled;
+            }
             std::lock_guard lock(seller->mu);
             const auto taker_release_result = seller->wallet.release(market.base(), order_result.remaining_quantity);
             assert(taker_release_result && "Invariant violated: taker release failed after market sell");
         }
+
+        order_history_.try_insert(std::move(taker_record));
 
         return order_result;
     }
@@ -745,10 +823,12 @@ namespace vertex::application
             result.side = Side::Sell;
         }
 
+        auto record = order_meta_store_.close_and_extract(order_id, OrderStatus::Canceled);
+        if (record)
+            order_history_.try_insert(std::move(record.value()));
+
         result.id = order_id;
         result.remaining_quantity = cancel_result->remaining_quantity;
-        order_meta_store_.erase(order_id);
-
         return result;
     }
 

@@ -1,11 +1,15 @@
 #include <gtest/gtest.h>
 
+#include "tests/application/exchange_test_access.hpp"
 #include "vertex/application/exchange.hpp"
 
 namespace
 {
     using vertex::application::Exchange;
+    using vertex::application::ExchangeTestAccess;
     using vertex::application::CancelOrderError;
+    using vertex::application::OrderStatus;
+    using vertex::application::OrderType;
     using vertex::application::PlaceOrderError;
     using vertex::application::RegisterMarketError;
     using vertex::application::UserError;
@@ -197,6 +201,39 @@ TEST(ExchangeTest, MatchSettlementIsAppliedExactlyOnceWithPriceImprovement)
     EXPECT_EQ(*seller_btc_free, 5);
     EXPECT_EQ(*seller_btc_reserved, 0);
     EXPECT_EQ(*seller_usdt_free, 500);
+
+    const auto buyer_record = ExchangeTestAccess::order_history_find(exchange, taker_buy->order_id);
+    ASSERT_TRUE(buyer_record.has_value());
+    EXPECT_EQ(buyer_record->type, OrderType::LimitOrder);
+    EXPECT_EQ(buyer_record->status, OrderStatus::Filled);
+    EXPECT_EQ(buyer_record->side, Side::Buy);
+    ASSERT_TRUE(buyer_record->limit_price.has_value());
+    EXPECT_EQ(*buyer_record->limit_price, 110);
+    ASSERT_TRUE(buyer_record->requested_base_qty.has_value());
+    EXPECT_EQ(*buyer_record->requested_base_qty, 5);
+    EXPECT_EQ(buyer_record->executed_base_qty, 5);
+    EXPECT_EQ(buyer_record->executed_quote_qty, 500);
+    ASSERT_TRUE(buyer_record->avg_price.has_value());
+    EXPECT_DOUBLE_EQ(*buyer_record->avg_price, 100.0);
+    EXPECT_EQ(buyer_record->fill_count, 1);
+    ASSERT_EQ(buyer_record->trade_ids.size(), 1U);
+
+    const auto seller_record = ExchangeTestAccess::order_history_find(exchange, resting_sell->order_id);
+    ASSERT_TRUE(seller_record.has_value());
+    EXPECT_EQ(seller_record->type, OrderType::LimitOrder);
+    EXPECT_EQ(seller_record->status, OrderStatus::Filled);
+    EXPECT_EQ(seller_record->side, Side::Sell);
+    ASSERT_TRUE(seller_record->limit_price.has_value());
+    EXPECT_EQ(*seller_record->limit_price, 100);
+    ASSERT_TRUE(seller_record->requested_base_qty.has_value());
+    EXPECT_EQ(*seller_record->requested_base_qty, 5);
+    EXPECT_EQ(seller_record->executed_base_qty, 5);
+    EXPECT_EQ(seller_record->executed_quote_qty, 500);
+    ASSERT_TRUE(seller_record->avg_price.has_value());
+    EXPECT_DOUBLE_EQ(*seller_record->avg_price, 100.0);
+    EXPECT_EQ(seller_record->fill_count, 1);
+    ASSERT_EQ(seller_record->trade_ids.size(), 1U);
+    EXPECT_EQ(seller_record->trade_ids.front(), buyer_record->trade_ids.front());
 }
 
 TEST(ExchangeTest, CancelBuyOrderReleasesReservedQuoteAndRemovesOrder)
@@ -236,6 +273,21 @@ TEST(ExchangeTest, CancelBuyOrderReleasesReservedQuoteAndRemovesOrder)
     const auto cancel_again = exchange.cancel_order(user_id, place_result->order_id);
     ASSERT_FALSE(cancel_again.has_value());
     EXPECT_EQ(cancel_again.error(), CancelOrderError::OrderNotFound);
+
+    const auto history_record = ExchangeTestAccess::order_history_find(exchange, place_result->order_id);
+    ASSERT_TRUE(history_record.has_value());
+    EXPECT_EQ(history_record->type, OrderType::LimitOrder);
+    EXPECT_EQ(history_record->status, OrderStatus::Canceled);
+    EXPECT_EQ(history_record->side, Side::Buy);
+    ASSERT_TRUE(history_record->limit_price.has_value());
+    EXPECT_EQ(*history_record->limit_price, 100);
+    ASSERT_TRUE(history_record->requested_base_qty.has_value());
+    EXPECT_EQ(*history_record->requested_base_qty, 5);
+    EXPECT_EQ(history_record->executed_base_qty, 0);
+    EXPECT_EQ(history_record->executed_quote_qty, 0);
+    EXPECT_FALSE(history_record->avg_price.has_value());
+    EXPECT_EQ(history_record->fill_count, 0);
+    EXPECT_TRUE(history_record->trade_ids.empty());
 }
 
 TEST(ExchangeTest, CancelSellOrderReleasesReservedBase)
@@ -397,6 +449,20 @@ TEST(ExchangeTest, ExecuteMarketOrderWithoutLiquidityReleasesReservedFunds)
     const auto cancel_market_order = exchange.cancel_order(buyer_id, result->order_id);
     ASSERT_FALSE(cancel_market_order.has_value());
     EXPECT_EQ(cancel_market_order.error(), CancelOrderError::OrderNotFound);
+
+    const auto taker_record = ExchangeTestAccess::order_history_find(exchange, result->order_id);
+    ASSERT_TRUE(taker_record.has_value());
+    EXPECT_EQ(taker_record->type, OrderType::MarketOrder);
+    EXPECT_EQ(taker_record->status, OrderStatus::Unfilled);
+    EXPECT_EQ(taker_record->side, Side::Buy);
+    ASSERT_TRUE(taker_record->requested_quote_budget.has_value());
+    EXPECT_EQ(*taker_record->requested_quote_budget, 250);
+    EXPECT_FALSE(taker_record->requested_base_qty.has_value());
+    EXPECT_EQ(taker_record->executed_base_qty, 0);
+    EXPECT_EQ(taker_record->executed_quote_qty, 0);
+    EXPECT_FALSE(taker_record->avg_price.has_value());
+    EXPECT_EQ(taker_record->fill_count, 0);
+    EXPECT_TRUE(taker_record->trade_ids.empty());
 }
 
 TEST(ExchangeTest, ExecuteMarketBuyUsesQuoteBudgetAndLeavesTooSmallRemainderReleased)
@@ -463,6 +529,20 @@ TEST(ExchangeTest, ExecuteMarketBuyUsesQuoteBudgetAndLeavesTooSmallRemainderRele
     ASSERT_TRUE(cancel_remaining.has_value());
     EXPECT_EQ(cancel_remaining->side, Side::Sell);
     EXPECT_EQ(cancel_remaining->remaining_quantity, 2);
+
+    const auto taker_record = ExchangeTestAccess::order_history_find(exchange, taker_buy->order_id);
+    ASSERT_TRUE(taker_record.has_value());
+    EXPECT_EQ(taker_record->type, OrderType::MarketOrder);
+    EXPECT_EQ(taker_record->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(taker_record->side, Side::Buy);
+    ASSERT_TRUE(taker_record->requested_quote_budget.has_value());
+    EXPECT_EQ(*taker_record->requested_quote_budget, 401);
+    EXPECT_EQ(taker_record->executed_base_qty, 3);
+    EXPECT_EQ(taker_record->executed_quote_qty, 301);
+    ASSERT_TRUE(taker_record->avg_price.has_value());
+    EXPECT_NEAR(*taker_record->avg_price, 301.0 / 3.0, 1e-12);
+    EXPECT_EQ(taker_record->fill_count, 2);
+    ASSERT_EQ(taker_record->trade_ids.size(), 2U);
 }
 
 TEST(ExchangeTest, ExecuteMarketSellSettlesQuoteAndReleasesUnfilledBaseRemainder)
@@ -530,4 +610,18 @@ TEST(ExchangeTest, ExecuteMarketSellSettlesQuoteAndReleasesUnfilledBaseRemainder
     const auto cancel_filled_buy_2 = exchange.cancel_order(buyer2_id, resting_buy_2->order_id);
     ASSERT_FALSE(cancel_filled_buy_2.has_value());
     EXPECT_EQ(cancel_filled_buy_2.error(), CancelOrderError::OrderNotFound);
+
+    const auto taker_record = ExchangeTestAccess::order_history_find(exchange, taker_sell->order_id);
+    ASSERT_TRUE(taker_record.has_value());
+    EXPECT_EQ(taker_record->type, OrderType::MarketOrder);
+    EXPECT_EQ(taker_record->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(taker_record->side, Side::Sell);
+    ASSERT_TRUE(taker_record->requested_base_qty.has_value());
+    EXPECT_EQ(*taker_record->requested_base_qty, 5);
+    EXPECT_EQ(taker_record->executed_base_qty, 3);
+    EXPECT_EQ(taker_record->executed_quote_qty, 314);
+    ASSERT_TRUE(taker_record->avg_price.has_value());
+    EXPECT_NEAR(*taker_record->avg_price, 314.0 / 3.0, 1e-12);
+    EXPECT_EQ(taker_record->fill_count, 2);
+    ASSERT_EQ(taker_record->trade_ids.size(), 2U);
 }

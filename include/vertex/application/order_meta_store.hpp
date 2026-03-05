@@ -1,8 +1,10 @@
 #pragma once
 #include "vertex/core/types.hpp"
+#include "vertex/application/order_history.hpp"
 #include <array>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
 
 namespace vertex::application
 {
@@ -11,13 +13,23 @@ namespace vertex::application
     using Market = vertex::core::Market;
     using Side = vertex::core::Side;
     using Price = vertex::core::Price;
+    using TradeId = vertex::core::TradeId;
+    using Quantity = vertex::core::Quantity;
 
     struct OrderMeta
     {
         UserId owner;
         Market market;
         Side side;
+
         Price price;
+        std::optional<Quantity> requested_base_qty; // Limit + MarketSellByBase
+
+        Quantity executed_base_qty{0};
+        Quantity executed_quote_qty{0};
+
+        std::size_t fill_count{0};
+        std::vector<TradeId> trade_ids{};
     };
 
     class OrderMetaStoreTestAccess;
@@ -44,5 +56,7 @@ namespace vertex::application
         bool try_insert(OrderId id, OrderMeta meta);
         std::optional<OrderMeta> find(OrderId) const;
         bool erase(OrderId id);
+        std::optional<OrderRecord> close_and_extract(OrderId order_id, OrderStatus status);
+        bool append_fill(OrderId id, TradeId trade_id, Quantity qty, Price price);
     };
 }

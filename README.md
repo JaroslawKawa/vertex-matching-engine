@@ -75,6 +75,7 @@ Core Types (StrongId / Asset / Market)
 - reservation-aware wallet accounting (`reserve`, `release`, `consume`)
 - safe order cancel flow with fund release
 - market-scoped trade persistence
+- completed-order persistence with status tracking (`Filled`, `PartiallyFilled`, `Unfilled`, `Canceled`)
 - multi-market routing via dispatcher
 - interactive CLI pipeline:
   - tokenizer
@@ -169,7 +170,7 @@ Project modules:
 - `core`: basic types, strong identifiers, ID generator, asset and market primitives
 - `domain`: domain entities such as `User`, `Wallet`, and `Trade`
 - `engine`: order requests, resting orders, order book logic, market workers and dispatching
-- `application`: exchange orchestration, wallet settlement, and trade history
+- `application`: exchange orchestration, wallet settlement, trade history, and order history
 - `app/cli`: interactive CLI interface including tokenizer, parser, dispatcher and printer
 
 ---
