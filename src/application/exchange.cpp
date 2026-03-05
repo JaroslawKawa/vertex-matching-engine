@@ -473,14 +473,9 @@ namespace vertex::application
 
         std::vector<Execution> execution_result = execution_result_expected.value();
 
-        std::shared_ptr<Account> buyer;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(PlaceOrderError::UserNotFound);
-            buyer = account_it->second;
-        }
+        std::shared_ptr<Account> buyer = get_account(user_id);
+        if (buyer == nullptr)
+            return std::unexpected(PlaceOrderError::UserNotFound);
 
         OrderRecord taker_record{.id = order_result.order_id,
                                  .user_id = buyer->user.id(),
@@ -588,14 +583,9 @@ namespace vertex::application
 
         std::vector<Execution> execution_result = execution_result_expected.value();
 
-        std::shared_ptr<Account> seller;
-        {
-            std::shared_lock lock(accounts_mu_);
-            auto account_it = accounts_.find(user_id);
-            if (account_it == accounts_.end())
-                return std::unexpected(PlaceOrderError::UserNotFound);
-            seller = account_it->second;
-        }
+        std::shared_ptr<Account> seller = get_account(user_id);
+        if (seller == nullptr)
+            return std::unexpected(PlaceOrderError::UserNotFound);
 
         OrderRecord taker_record{.id = order_result.order_id,
                                  .user_id = seller->user.id(),
