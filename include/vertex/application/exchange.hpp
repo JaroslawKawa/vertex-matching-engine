@@ -128,13 +128,24 @@ namespace vertex::application
         TradeHistory trade_history_{};
         OrderHistory order_history_{};
 
+        struct PreparedLimitOrder
+        {
+            std::shared_ptr<Account> account;
+            Asset asset_to_reserve;
+            Quantity quantity_to_reserve;
+            OrderId id;
+            LimitOrderRequest order_request;
+            OrderMeta meta;
+        };
+
         std::expected<OrderPlacementResult, PlaceOrderError> execute_market_buy_by_quote(const UserId user_id, const Market &market, const Quantity order_quantity);
         std::expected<OrderPlacementResult, PlaceOrderError> execute_market_sell_by_base(const UserId user_id, const Market &market, const Quantity order_quantity);
         std::optional<PlaceOrderError> validate_order(const UserId user_id, const Market &market, std::optional<Price> price, const Quantity quantity) const;
         std::shared_ptr<Account> get_account(UserId id) const;
         std::pair<std::shared_ptr<Account>, std::shared_ptr<Account>> get_accounts(UserId id_1, UserId id_2) const;
         void settle_trade(Account &buyer, Account &seller, const Execution &execution, const Market &market);
-
+        std::expected<PreparedLimitOrder, PlaceOrderError> prepare_and_reserve_limit_order(const UserId &user_id, const Market &market, const Side &side, const Price &price, const Quantity &quantity);
+        void rollback_release_or_assert(Account &account,const Asset &asset,const Quantity quantity, const std::string &context);
     public:
         Exchange() = default;
         std::expected<UserId, UserError> create_user(std::string name);

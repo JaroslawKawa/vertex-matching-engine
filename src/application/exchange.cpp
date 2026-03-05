@@ -69,6 +69,7 @@ namespace vertex::application
                 std::terminate();
             }
         }
+
         struct TwoAccountLocks
         {
             std::unique_lock<std::mutex> first;
@@ -241,123 +242,85 @@ namespace vertex::application
     std::expected<OrderPlacementResult, PlaceOrderError> Exchange::place_limit_order(const UserId user_id, const Market &market, const Side side, const Price price, const Quantity quantity)
     {
         auto order_validation_error = validate_order(user_id, market, price, quantity);
-
         if (order_validation_error)
             return std::unexpected(order_validation_error.value());
 
+        auto prepered_limit_order = prepare_and_reserve_limit_order(user_id, market, side, price, quantity);
+
+        if (!prepered_limit_order)
+            return std::unexpected(prepered_limit_order.error());
+
+        Asset asset_to_reserve = prepered_limit_order->asset_to_reserve;
+        Quantity quantity_to_reserve = prepered_limit_order->quantity_to_reserve;
+        std::shared_ptr<Account> account = std::move(prepered_limit_order->account);
+        OrderId order_id = prepered_limit_order->id;
+        LimitOrderRequest limit_order_request = std::move(prepered_limit_order->order_request);
+
         OrderPlacementResult order_result;
-        Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
-        Quantity quantity_to_reserve = (side == Side::Buy) ? price * quantity : quantity;
-
-        std::shared_ptr<Account> account = get_account(user_id);
-
-        if (account == nullptr)
-            return std::unexpected(PlaceOrderError::UserNotFound);
-
-        std::expected<void, WalletError> reserve_result;
-        {
-            std::lock_guard lock(account->mu);
-            reserve_result = account->wallet.reserve(asset_to_reserve, quantity_to_reserve);
-        }
-        if (!reserve_result)
-            return std::unexpected(PlaceOrderError::InsufficientFunds);
-
-        OrderId order_id;
-        {
-            std::lock_guard lock(order_id_generator_mu_);
-            order_id = order_id_generator_.next();
-        }
-
-        if (!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side = side, .price = price, .requested_base_qty = quantity}))
-        {
-            std::expected<void, WalletError> rollback_release_result;
-            {
-                std::lock_guard lock(account->mu);
-                rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
-            }
-            assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
-
-            return std::unexpected(PlaceOrderError::OrderIdCollision);
-        }
-
-        LimitOrderRequest limit_order_request{
-            .id = order_id,
-            .user_id = user_id,
-            .market = market,
-            .side = side,
-            .limit_price = price,
-            .base_quantity = quantity};
-
         order_result.order_id = limit_order_request.id;
         order_result.remaining_quantity = quantity;
         order_result.filled_quantity = 0;
 
-        auto matching_result_expected = market_dispatcher_.submit(std::move(limit_order_request)).get();
-
-        if (!matching_result_expected)
+        if (!order_meta_store_.try_insert(order_id, std::move(prepered_limit_order->meta)))
         {
-            std::expected<void, WalletError> rollback_release_result;
-            {
-                std::lock_guard lock(account->mu);
-                rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
-            }
-            assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
-            order_meta_store_.erase(order_id);
-
-            return std::unexpected(map_to_place_order_error(matching_result_expected.error()));
+            rollback_release_or_assert(*account, asset_to_reserve, quantity_to_reserve, "Invariant violated: rollback release failed after limit submit error");
+            return std::unexpected(PlaceOrderError::OrderIdCollision);
         }
 
-        std::vector<Execution> matching_result = matching_result_expected.value();
+        auto matching_result = market_dispatcher_.submit(std::move(limit_order_request)).get();
 
-        if (!matching_result.empty())
+        if (!matching_result)
+        {
+            rollback_release_or_assert(*account, asset_to_reserve, quantity_to_reserve, "Invariant violated: rollback release failed after limit submit error");
+            order_meta_store_.erase(order_id);
+            return std::unexpected(map_to_place_order_error(matching_result.error()));
+        }
+
+        for (const Execution &execution : matching_result.value())
         {
 
-            for (const Execution &execution : matching_result)
+            OrderId buyer_order_id = execution.buy_order_id;
+            OrderId seller_order_id = execution.sell_order_id;
+
+            auto buyer_order_meta = order_meta_store_.find(buyer_order_id);
+            assert(buyer_order_meta != std::nullopt);
+            UserId buyer_user_id = buyer_order_meta->owner;
+
+            auto seller_order_meta = order_meta_store_.find(seller_order_id);
+            assert(seller_order_meta != std::nullopt);
+            UserId seller_user_id = seller_order_meta->owner;
+
+            auto [buyer, seller] = get_accounts(buyer_user_id, seller_user_id);
+            assert((buyer != nullptr && seller != nullptr) && "Invariant violated: buyer or seller not exist");
+
+            settle_trade(*buyer, *seller, execution, market);
+
+            order_result.remaining_quantity -= execution.quantity;
+            order_result.filled_quantity += execution.quantity;
+
+            TradeId trade_id;
             {
+                std::lock_guard lock(trade_id_generator_mu_);
+                trade_id = trade_id_generator_.next();
+            }
+            Trade trade{trade_id, buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
 
-                OrderId buyer_order_id = execution.buy_order_id;
-                OrderId seller_order_id = execution.sell_order_id;
+            order_meta_store_.append_fill(execution.buy_order_id, trade_id, execution.quantity, execution.execution_price);
+            order_meta_store_.append_fill(execution.sell_order_id, trade_id, execution.quantity, execution.execution_price);
 
-                auto buyer_order_meta = order_meta_store_.find(buyer_order_id);
-                assert(buyer_order_meta != std::nullopt);
-                UserId buyer_user_id = buyer_order_meta->owner;
+            trade_history_.add(std::move(trade));
 
-                auto seller_order_meta = order_meta_store_.find(seller_order_id);
-                assert(seller_order_meta != std::nullopt);
-                UserId seller_user_id = seller_order_meta->owner;
-
-                auto [buyer, seller] = get_accounts(buyer_user_id, seller_user_id);
-                assert((buyer != nullptr && seller != nullptr) && "Invariant violated: buyer or seller not exist");
-
-                settle_trade(*buyer, *seller, execution, market);
-
-                order_result.remaining_quantity -= execution.quantity;
-                order_result.filled_quantity += execution.quantity;
-
-                TradeId trade_id;
-                {
-                    std::lock_guard lock(trade_id_generator_mu_);
-                    trade_id = trade_id_generator_.next();
-                }
-                Trade trade{trade_id, buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
-
-                order_meta_store_.append_fill(execution.buy_order_id, trade_id, execution.quantity, execution.execution_price);
-                order_meta_store_.append_fill(execution.sell_order_id, trade_id, execution.quantity, execution.execution_price);
-
-                trade_history_.add(std::move(trade));
-
-                if (execution.buy_fully_filled)
-                {
-                    auto record = order_meta_store_.close_and_extract(execution.buy_order_id, OrderStatus::Filled);
-                    if (record)
-                        order_history_.try_insert(std::move(record.value()));
-                }
-                if (execution.sell_fully_filled)
-                {
-                    auto record = order_meta_store_.close_and_extract(execution.sell_order_id, OrderStatus::Filled);
-                    if (record)
-                        order_history_.try_insert(std::move(record.value()));
-                }
+            if (execution.buy_fully_filled)
+            {
+                auto record = order_meta_store_.close_and_extract(execution.buy_order_id, OrderStatus::Filled);
+                if (record)
+                    order_history_.try_insert(std::move(record.value()));
+            }
+            if (execution.sell_fully_filled)
+            {
+                auto record = order_meta_store_.close_and_extract(execution.sell_order_id, OrderStatus::Filled);
+                if (record)
+                    order_history_.try_insert(std::move(record.value()));
             }
         }
 
@@ -374,7 +337,6 @@ namespace vertex::application
         Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
 
         std::shared_ptr<Account> account = get_account(user_id);
-
         if (account == nullptr)
             return std::unexpected(PlaceOrderError::UserNotFound);
 
@@ -383,27 +345,18 @@ namespace vertex::application
             std::lock_guard lock(account->mu);
             reserve_result = account->wallet.reserve(asset_to_reserve, order_quantity);
         }
-
         if (!reserve_result)
             return std::unexpected(PlaceOrderError::InsufficientFunds);
 
         std::expected<OrderPlacementResult, PlaceOrderError> order_result;
 
         if (Side::Buy == side)
-        {
             order_result = execute_market_buy_by_quote(user_id, market, order_quantity);
-        }
         else
-        {
             order_result = execute_market_sell_by_base(user_id, market, order_quantity);
-        }
 
         if (!order_result)
-        {
-            std::lock_guard lock(account->mu);
-            const auto rollback_release_result = account->wallet.release(asset_to_reserve, order_quantity);
-            assert(rollback_release_result && "Invariant violated: rollback release failed after market submit error");
-        }
+            rollback_release_or_assert(*account, asset_to_reserve, order_quantity, "Invariant violated: rollback release failed after market submit error");
 
         return order_result;
     }
@@ -770,4 +723,61 @@ namespace vertex::application
         }
     }
 
+    std::expected<Exchange::PreparedLimitOrder, PlaceOrderError> Exchange::prepare_and_reserve_limit_order(const UserId &user_id, const Market &market, const Side &side, const Price &price, const Quantity &quantity)
+    {
+
+        Asset asset_to_reserve = (side == Side::Buy) ? market.quote() : market.base();
+        Quantity quantity_to_reserve = (side == Side::Buy) ? price * quantity : quantity;
+
+        std::shared_ptr<Account> account = get_account(user_id);
+        if (account == nullptr)
+            return std::unexpected(PlaceOrderError::UserNotFound);
+
+        std::expected<void, WalletError> reserve_result;
+        {
+            std::lock_guard lock(account->mu);
+            reserve_result = account->wallet.reserve(asset_to_reserve, quantity_to_reserve);
+        }
+        if (!reserve_result)
+            return std::unexpected(PlaceOrderError::InsufficientFunds);
+
+        OrderId id;
+        {
+            std::lock_guard lock(order_id_generator_mu_);
+            id = order_id_generator_.next();
+        }
+
+        LimitOrderRequest limit_order_request{
+            .id = id,
+            .user_id = user_id,
+            .market = market,
+            .side = side,
+            .limit_price = price,
+            .base_quantity = quantity};
+
+        OrderMeta meta{
+            .owner = user_id,
+            .market = market,
+            .side = side,
+            .price = price,
+            .requested_base_qty = quantity};
+
+        return PreparedLimitOrder{
+            .account = std::move(account),
+            .asset_to_reserve = std::move(asset_to_reserve),
+            .quantity_to_reserve = quantity_to_reserve,
+            .id = id,
+            .order_request = std::move(limit_order_request),
+            .meta = std::move(meta)};
+    }
+
+    void Exchange::rollback_release_or_assert(Account &account, const Asset &asset, const Quantity quantity, const std::string &context)
+    {
+        std::expected<void, WalletError> rollback_release_result;
+        {
+            std::lock_guard lock(account.mu);
+            rollback_release_result = account.wallet.release(asset, quantity);
+        }
+        assert(rollback_release_result && context.c_str());
+    }
 } // namespace vertex::application
