@@ -1,5 +1,8 @@
 #include "vertex/application/exchange.hpp"
 
+#include <cassert>
+#include <exception>
+
 namespace vertex::application
 {
     namespace
@@ -10,10 +13,8 @@ namespace vertex::application
             {
             case vertex::domain::WalletError::InsufficientReserved:
                 return WalletOperationError::InsufficientReserved;
-
             case vertex::domain::WalletError::InsufficientFunds:
                 return WalletOperationError::InsufficientFunds;
-
             case vertex::domain::WalletError::InvalidAmount:
                 return WalletOperationError::InvalidQuantity;
             default:
@@ -21,11 +22,14 @@ namespace vertex::application
                 std::terminate();
             }
         }
-    }
-    std::expected<void, WalletOperationError> Exchange::deposit(const UserId user_id, const Asset &asset, const Quantity quantity)
+    } // namespace
+
+    std::expected<void, WalletOperationError> Exchange::deposit(
+        const UserId user_id,
+        const Asset &asset,
+        const Quantity quantity)
     {
         std::shared_ptr<Account> account = get_account(user_id);
-
         if (account == nullptr)
             return std::unexpected(WalletOperationError::UserNotFound);
 
@@ -41,10 +45,12 @@ namespace vertex::application
         return {};
     }
 
-    std::expected<void, WalletOperationError> Exchange::withdraw(const UserId user_id, const Asset &asset, const Quantity quantity)
+    std::expected<void, WalletOperationError> Exchange::withdraw(
+        const UserId user_id,
+        const Asset &asset,
+        const Quantity quantity)
     {
         std::shared_ptr<Account> account = get_account(user_id);
-
         if (account == nullptr)
             return std::unexpected(WalletOperationError::UserNotFound);
 
@@ -60,10 +66,12 @@ namespace vertex::application
         return {};
     }
 
-    std::expected<void, WalletOperationError> Exchange::reserve(const UserId user_id, const Asset &asset, const Quantity quantity)
+    std::expected<void, WalletOperationError> Exchange::reserve(
+        const UserId user_id,
+        const Asset &asset,
+        const Quantity quantity)
     {
         std::shared_ptr<Account> account = get_account(user_id);
-
         if (account == nullptr)
             return std::unexpected(WalletOperationError::UserNotFound);
 
@@ -79,10 +87,12 @@ namespace vertex::application
         return {};
     }
 
-    std::expected<void, WalletOperationError> Exchange::release(const UserId user_id, const Asset &asset, const Quantity quantity)
+    std::expected<void, WalletOperationError> Exchange::release(
+        const UserId user_id,
+        const Asset &asset,
+        const Quantity quantity)
     {
         std::shared_ptr<Account> account = get_account(user_id);
-
         if (account == nullptr)
             return std::unexpected(WalletOperationError::UserNotFound);
 
@@ -101,7 +111,6 @@ namespace vertex::application
     std::expected<Quantity, WalletOperationError> Exchange::free_balance(const UserId user_id, const Asset &asset) const
     {
         std::shared_ptr<Account> account = get_account(user_id);
-
         if (account == nullptr)
             return std::unexpected(WalletOperationError::UserNotFound);
 
@@ -112,7 +121,6 @@ namespace vertex::application
     std::expected<Quantity, WalletOperationError> Exchange::reserved_balance(const UserId user_id, const Asset &asset) const
     {
         std::shared_ptr<Account> account = get_account(user_id);
-
         if (account == nullptr)
             return std::unexpected(WalletOperationError::UserNotFound);
 
@@ -120,4 +128,4 @@ namespace vertex::application
         return account->wallet.reserved_balance(asset);
     }
 
-}
+} // namespace vertex::application

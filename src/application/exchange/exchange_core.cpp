@@ -1,5 +1,7 @@
 #include "vertex/application/exchange.hpp"
 
+#include <cassert>
+
 namespace vertex::application
 {
     namespace
@@ -17,11 +19,10 @@ namespace vertex::application
                 return RegisterMarketError::WorkerStopped;
             }
         }
-    }
-    
+    } // namespace
+
     std::expected<UserId, UserError> Exchange::create_user(std::string name)
     {
-
         if (name.empty())
             return std::unexpected(UserError::EmptyName);
 
@@ -35,8 +36,8 @@ namespace vertex::application
 
         {
             std::lock_guard lock(accounts_mu_);
-            auto [_, user_insert_result] = accounts_.emplace(user.id(), std::make_shared<Account>(user, Wallet{}));
-            if (!user_insert_result)
+            auto [_, inserted] = accounts_.emplace(user.id(), std::make_shared<Account>(user, Wallet{}));
+            if (!inserted)
                 return std::unexpected(UserError::UserAlreadyExists);
         }
 
@@ -62,14 +63,11 @@ namespace vertex::application
 
     std::expected<void, RegisterMarketError> Exchange::register_market(const Market &market)
     {
-
         auto register_result = market_dispatcher_.register_market(market);
-
         if (!register_result)
-        {
             return std::unexpected(map_to_register_market_error(register_result.error()));
-        }
 
         return {};
     }
-}
+
+} // namespace vertex::application
