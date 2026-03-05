@@ -338,7 +338,7 @@ namespace vertex::application
             order_id = order_id_generator_.next();
         }
 
-        if (!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side = side, .price = price}))
+        if (!order_meta_store_.try_insert(order_id, OrderMeta{.owner = user_id, .market = market, .side = side, .price = price, .requested_base_qty = quantity}))
         {
             std::expected<void, WalletError> rollback_release_result;
             {
@@ -346,7 +346,6 @@ namespace vertex::application
                 rollback_release_result = account->wallet.release(asset_to_reserve, quantity_to_reserve);
             }
             assert(rollback_release_result && "Invariant violated: rollback release failed after limit submit error");
-            order_meta_store_.erase(order_id);
 
             return std::unexpected(PlaceOrderError::OrderIdCollision);
         }
@@ -433,6 +432,9 @@ namespace vertex::application
                     trade_id = trade_id_generator_.next();
                 }
                 Trade trade{trade_id, buyer_user_id, seller_user_id, buyer_order_id, seller_order_id, market, execution.quantity, execution.execution_price};
+
+                order_meta_store_.append_fill(execution.buy_order_id, trade_id, execution.quantity, execution.execution_price);
+                order_meta_store_.append_fill(execution.sell_order_id, trade_id, execution.quantity, execution.execution_price);
 
                 trade_history_.add(std::move(trade));
 
