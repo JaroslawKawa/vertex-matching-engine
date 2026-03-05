@@ -225,7 +225,7 @@ namespace vertex::engine
                               resting_order.id,
                               executed_base,
                               price,
-                              price,
+                              std::nullopt,
                               taker_fully_filled,
                               resting_order.is_filled()});
 
@@ -266,7 +266,7 @@ namespace vertex::engine
                               taker_order_id,
                               executed_quantity,
                               price,
-                              price,
+                              resting_order.limit_price,
                               resting_order.is_filled(),
                               taker_fully_filled});
 

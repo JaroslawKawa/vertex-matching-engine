@@ -368,7 +368,8 @@ namespace vertex::application
                     const auto buyer_consume_result = buyer->wallet.consume_reserved(market.quote(), execution.execution_price * execution.quantity);
                     assert(buyer_consume_result && "Invariant violated: buyer reserved quote must cover executed notional");
 
-                    Quantity refund = execution.buy_order_limit_price * execution.quantity - execution.execution_price * execution.quantity;
+                    assert(execution.buy_order_limit_price.has_value() && "Invariant violated: limit settlement requires buy limit price");
+                    Quantity refund = execution.buy_order_limit_price.value() * execution.quantity - execution.execution_price * execution.quantity;
                     if (0 < refund)
                     {
                         const auto buyer_release_result = buyer->wallet.release(market.quote(), refund);
@@ -376,12 +377,13 @@ namespace vertex::application
                     }
                     const auto buyer_deposit_result = buyer->wallet.deposit(market.base(), execution.quantity);
                     assert(buyer_deposit_result && "Invariant violated: buyer base deposit failed");
+                    
                     const auto seller_consume_result = seller->wallet.consume_reserved(market.base(), execution.quantity);
                     assert(seller_consume_result && "Invariant violated: seller reserved base must cover executed quantity");
-
                     const auto seller_deposit_result = seller->wallet.deposit(market.quote(), execution.execution_price * execution.quantity);
                     assert(seller_deposit_result && "Invariant violated: seller quote deposit failed");
                 }
+
                 order_result.remaining_quantity -= execution.quantity;
                 order_result.filled_quantity += execution.quantity;
 
