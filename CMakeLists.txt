@@ -20,6 +20,7 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 
 add_library(vertex_engine STATIC
+    src/application/exchange/exchange_analytics.cpp
     src/application/exchange/exchange_core.cpp
     src/application/exchange/exchange_order.cpp
     src/application/exchange/exchange_settlement.cpp

@@ -86,6 +86,13 @@ namespace vertex::application
         WorkerStopped
     };
 
+    enum class AnalyticsError
+    {
+        InvalidUserId,
+        UserNotFound,
+        NoData
+    };
+
     struct OrderPlacementResult
     {
         OrderId order_id;
@@ -169,7 +176,8 @@ namespace vertex::application
             const Price &price,
             const Quantity &quantity);
         void rollback_release_or_assert(Account &account, const Asset &asset, const Quantity quantity, const std::string &context);
-
+        
+        std::expected<std::vector<OrderRecord>, AnalyticsError> user_orders_snapshot(UserId user_id) const;
     public:
         Exchange() = default;
 
@@ -197,5 +205,22 @@ namespace vertex::application
             const Quantity order_quantity);
         std::expected<CancelOrderResult, CancelOrderError> cancel_order(const UserId user_id, const OrderId order_id);
         std::expected<void, RegisterMarketError> register_market(const Market &market);
+
+        std::expected<std::size_t, AnalyticsError> order_count_by_status(UserId user_id, OrderStatus status) const;
+        std::expected<std::size_t, AnalyticsError> order_count_by_side(UserId user_id, Side side) const;
+        std::expected<Quantity, AnalyticsError> total_executed_base_by_user(UserId user_id) const;
+        std::expected<Quantity, AnalyticsError> total_executed_quote_by_user(UserId user_id) const;
+        std::expected<double, AnalyticsError> average_fill_count_by_user(UserId user_id) const;
+        std::expected<double, AnalyticsError> completion_ratio_by_user(UserId user_id) const;
+        std::expected<double, AnalyticsError> avg_order_notional_by_user(UserId user_id) const;
+        std::expected<double, AnalyticsError> vwap_from_orders_by_user(UserId user_id) const;
+        std::expected<double, AnalyticsError> median_order_notional_by_user(UserId user_id) const;
+        std::expected<std::vector<std::pair<OrderId, Quantity>>, AnalyticsError>
+        top_n_by_executed_quote_by_user(UserId user_id, std::size_t n) const;
+        std::expected<std::unordered_map<Market, Quantity>, AnalyticsError>
+        executed_quote_by_market_for_user(UserId user_id) const;
+        std::expected<double, AnalyticsError> avg_slippage_bps_for_limits_by_user(UserId user_id) const;
+        std::expected<std::vector<std::pair<Market, Quantity>>, AnalyticsError>
+        rank_markets_by_volume_for_user(UserId user_id) const;
     };
 } // namespace vertex::application
