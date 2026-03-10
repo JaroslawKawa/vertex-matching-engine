@@ -1,6 +1,6 @@
 # Application Layer
 
-This document reflects the current implementation in `include/vertex/application/*` and `src/application/exchange/*`.
+This document reflects the current implementation in `include/vertex/application/*`, `src/application/*`, and `src/application/exchange/*`.
 
 ## Scope
 
@@ -11,7 +11,8 @@ This document reflects the current implementation in `include/vertex/application
 - order submission and wallet settlement,
 - cancel/release flow,
 - market-scoped trade persistence,
-- completed-order persistence (`OrderHistory`).
+- completed-order persistence (`OrderHistory`),
+- pure analytics over completed orders (`order_analytics`).
 
 `Exchange` does not do matching itself. Matching stays in engine workers.
 
@@ -119,6 +120,31 @@ API:
 
 - `add(Trade)`
 - `market_history(market)`
+
+### Order Analytics
+
+`order_analytics` is a pure-function module over `std::span<const OrderRecord>`.
+
+Current API:
+
+- `count_by_status(...)`
+- `count_by_side(...)`
+- `total_executed_base(...)`
+- `total_executed_quote(...)`
+- `average_fill_count(...)`
+- `completion_ratio(...)`
+- `avg_order_notional(...)`
+- `vwap_from_orders(...)`
+- `median_order_notional(...)`
+- `top_n_by_executed_quote(...)`
+- `executed_quote_by_market(...)`
+- `avg_slippage_bps_for_limits(...)`
+- `rank_markets_by_volume(...)`
+
+Integration pattern:
+
+- query completed records from `OrderHistory` (for example `find_by_user(user_id)`),
+- pass returned `std::vector<OrderRecord>` as `std::span<const OrderRecord>` to analytics functions.
 
 ## Limit Order Flow (`place_limit_order`)
 
