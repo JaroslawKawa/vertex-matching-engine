@@ -23,4 +23,4 @@ namespace vertex::application::analytics
     std::unordered_map<Market, Quantity> executed_quote_by_market(std::span<const OrderRecord> orders);
     std::optional<double> avg_slippage_bps_for_limits(std::span<const OrderRecord> orders);
     std::vector<std::pair<Market, Quantity>> rank_markets_by_volume(std::span<const OrderRecord> orders);
-} // namespace namespace vertex::application::analytics
+} // namespace vertex::application::analytics

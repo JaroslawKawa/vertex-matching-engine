@@ -240,4 +240,4 @@ namespace vertex::application::analytics
 
         return ranked_markets;
     }
-} // namespace namespace vertex::application::analytics
+} // namespace vertex::application::analytics
