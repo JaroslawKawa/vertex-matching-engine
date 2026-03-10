@@ -7,9 +7,11 @@ add_executable(vertex_tests
     core/id_generator_tests.cpp
     core/asset_market_tests.cpp
     application/order_history_tests.cpp
+    application/order_analytics_tests.cpp
     application/order_meta_store_tests.cpp
     application/trade_history_tests.cpp
     application/exchange_tests.cpp
+    application/exchange_analytics_tests.cpp
     application/exchange_concurrency_tests.cpp
     cli/tokenizer_tests.cpp
     cli/parser_tests.cpp

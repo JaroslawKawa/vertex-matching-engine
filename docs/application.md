@@ -1,6 +1,6 @@
 # Application Layer
 
-This document reflects the current implementation in `include/vertex/application/*` and `src/application/exchange/*`.
+This document reflects the current implementation in `include/vertex/application/*`, `src/application/*`, and `src/application/exchange/*`.
 
 ## Scope
 
@@ -11,7 +11,8 @@ This document reflects the current implementation in `include/vertex/application
 - order submission and wallet settlement,
 - cancel/release flow,
 - market-scoped trade persistence,
-- completed-order persistence (`OrderHistory`).
+- completed-order persistence (`OrderHistory`),
+- pure analytics over completed orders (`order_analytics`).
 
 `Exchange` does not do matching itself. Matching stays in engine workers.
 
@@ -40,6 +41,7 @@ Current enums:
 - `PlaceOrderError`: `MarketNotListed`, `UserNotFound`, `InsufficientFunds`, `InvalidQuantity`, `InvalidAmount`, `WorkerStopped`, `OrderIdCollision`
 - `CancelOrderError`: `UserNotFound`, `OrderNotFound`, `NotOrderOwner`, `MarketNotFound`, `WorkerStopped`
 - `RegisterMarketError`: `AlreadyListed`, `WorkerStopped`
+- `AnalyticsError`: `InvalidUserId`, `UserNotFound`, `NoData`
 
 ## Public API
 
@@ -60,6 +62,22 @@ Trading:
 - `place_limit_order(user_id, market, side, price, quantity)`
 - `execute_market_order(user_id, market, side, order_quantity)`
 - `cancel_order(user_id, order_id)`
+
+Analytics:
+
+- `order_count_by_status(user_id, status)`
+- `order_count_by_side(user_id, side)`
+- `total_executed_base_by_user(user_id)`
+- `total_executed_quote_by_user(user_id)`
+- `average_fill_count_by_user(user_id)`
+- `completion_ratio_by_user(user_id)`
+- `avg_order_notional_by_user(user_id)`
+- `vwap_from_orders_by_user(user_id)`
+- `median_order_notional_by_user(user_id)`
+- `top_n_by_executed_quote_by_user(user_id, n)`
+- `executed_quote_by_market_for_user(user_id)`
+- `avg_slippage_bps_for_limits_by_user(user_id)`
+- `rank_markets_by_volume_for_user(user_id)`
 
 ## Storage Components
 
@@ -119,6 +137,39 @@ API:
 
 - `add(Trade)`
 - `market_history(market)`
+
+### Order Analytics
+
+`vertex::application::analytics` is a pure-function module over `std::span<const OrderRecord>`.
+
+Current API:
+
+- `count_by_status(...)`
+- `count_by_side(...)`
+- `total_executed_base(...)`
+- `total_executed_quote(...)`
+- `average_fill_count(...)`
+- `completion_ratio(...)`
+- `avg_order_notional(...)`
+- `vwap_from_orders(...)`
+- `median_order_notional(...)`
+- `top_n_by_executed_quote(...)`
+- `executed_quote_by_market(...)`
+- `avg_slippage_bps_for_limits(...)`
+- `rank_markets_by_volume(...)`
+
+Integration pattern:
+
+- query completed records from `OrderHistory` (for example `find_by_user(user_id)`),
+- pass returned `std::vector<OrderRecord>` as `std::span<const OrderRecord>` to analytics functions.
+- current `Exchange` analytics facade:
+  - validates `user_id` and user existence,
+  - snapshots per-user completed orders via `OrderHistory::find_by_user(...)`,
+  - maps snapshot failures to:
+    - `InvalidUserId` for invalid id value,
+    - `UserNotFound` when user does not exist,
+    - `NoData` when completed-order history is empty,
+  - delegates metric calculations to `vertex::application::analytics`.
 
 ## Limit Order Flow (`place_limit_order`)
 
