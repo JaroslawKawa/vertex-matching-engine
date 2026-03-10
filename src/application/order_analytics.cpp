@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace vertex::application
+namespace vertex::application::analytics
 {
     namespace
     {
@@ -240,4 +240,4 @@ namespace vertex::application
 
         return ranked_markets;
     }
-} // namespace vertex::application
+} // namespace namespace vertex::application::analytics

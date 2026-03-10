@@ -8,7 +8,7 @@
 
 #include "vertex/application/order_history.hpp"
 
-namespace vertex::application
+namespace vertex::application::analytics
 {
     std::size_t count_by_status(std::span<const OrderRecord> orders, OrderStatus status);
     std::size_t count_by_side(std::span<const OrderRecord> orders, Side side);
@@ -23,4 +23,4 @@ namespace vertex::application
     std::unordered_map<Market, Quantity> executed_quote_by_market(std::span<const OrderRecord> orders);
     std::optional<double> avg_slippage_bps_for_limits(std::span<const OrderRecord> orders);
     std::vector<std::pair<Market, Quantity>> rank_markets_by_volume(std::span<const OrderRecord> orders);
-} // namespace vertex::application
+} // namespace namespace vertex::application::analytics

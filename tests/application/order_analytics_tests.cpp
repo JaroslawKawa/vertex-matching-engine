@@ -7,6 +7,8 @@
 
 namespace
 {
+    namespace analytics = vertex::application::analytics;
+
     using vertex::application::OrderRecord;
     using vertex::application::OrderStatus;
     using vertex::application::OrderType;
@@ -63,10 +65,10 @@ TEST(OrderAnalyticsTest, CountByStatusAndSideWorks)
         make_order(OrderId{3}, UserId{11}, eth_usdt(), Side::Sell, OrderType::LimitOrder, OrderStatus::Unfilled, 0, 0),
         make_order(OrderId{4}, UserId{12}, eth_usdt(), Side::Sell, OrderType::LimitOrder, OrderStatus::Canceled, 0, 0)};
 
-    EXPECT_EQ(vertex::application::count_by_status(orders, OrderStatus::Filled), 1U);
-    EXPECT_EQ(vertex::application::count_by_status(orders, OrderStatus::Unfilled), 1U);
-    EXPECT_EQ(vertex::application::count_by_side(orders, Side::Buy), 2U);
-    EXPECT_EQ(vertex::application::count_by_side(orders, Side::Sell), 2U);
+    EXPECT_EQ(analytics::count_by_status(orders, OrderStatus::Filled), 1U);
+    EXPECT_EQ(analytics::count_by_status(orders, OrderStatus::Unfilled), 1U);
+    EXPECT_EQ(analytics::count_by_side(orders, Side::Buy), 2U);
+    EXPECT_EQ(analytics::count_by_side(orders, Side::Sell), 2U);
 }
 
 TEST(OrderAnalyticsTest, TotalsAverageAndVwapWork)
@@ -75,22 +77,22 @@ TEST(OrderAnalyticsTest, TotalsAverageAndVwapWork)
         make_order(OrderId{1}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 2, 200, 1),
         make_order(OrderId{2}, UserId{11}, btc_usdt(), Side::Sell, OrderType::LimitOrder, OrderStatus::PartiallyFilled, 3, 330, 2)};
 
-    EXPECT_EQ(vertex::application::total_executed_base(orders), 5);
-    EXPECT_EQ(vertex::application::total_executed_quote(orders), 530);
+    EXPECT_EQ(analytics::total_executed_base(orders), 5);
+    EXPECT_EQ(analytics::total_executed_quote(orders), 530);
 
-    const auto avg_fill = vertex::application::average_fill_count(orders);
+    const auto avg_fill = analytics::average_fill_count(orders);
     ASSERT_TRUE(avg_fill.has_value());
     EXPECT_DOUBLE_EQ(*avg_fill, 1.5);
 
-    const auto completion = vertex::application::completion_ratio(orders);
+    const auto completion = analytics::completion_ratio(orders);
     ASSERT_TRUE(completion.has_value());
     EXPECT_DOUBLE_EQ(*completion, 0.5);
 
-    const auto avg_notional = vertex::application::avg_order_notional(orders);
+    const auto avg_notional = analytics::avg_order_notional(orders);
     ASSERT_TRUE(avg_notional.has_value());
     EXPECT_DOUBLE_EQ(*avg_notional, 265.0);
 
-    const auto vwap = vertex::application::vwap_from_orders(orders);
+    const auto vwap = analytics::vwap_from_orders(orders);
     ASSERT_TRUE(vwap.has_value());
     EXPECT_DOUBLE_EQ(*vwap, 106.0);
 }
@@ -99,12 +101,12 @@ TEST(OrderAnalyticsTest, EmptyInputOptionalsReturnNullopt)
 {
     const std::vector<OrderRecord> orders{};
 
-    EXPECT_FALSE(vertex::application::average_fill_count(orders).has_value());
-    EXPECT_FALSE(vertex::application::completion_ratio(orders).has_value());
-    EXPECT_FALSE(vertex::application::avg_order_notional(orders).has_value());
-    EXPECT_FALSE(vertex::application::vwap_from_orders(orders).has_value());
-    EXPECT_FALSE(vertex::application::median_order_notional(orders).has_value());
-    EXPECT_FALSE(vertex::application::avg_slippage_bps_for_limits(orders).has_value());
+    EXPECT_FALSE(analytics::average_fill_count(orders).has_value());
+    EXPECT_FALSE(analytics::completion_ratio(orders).has_value());
+    EXPECT_FALSE(analytics::avg_order_notional(orders).has_value());
+    EXPECT_FALSE(analytics::vwap_from_orders(orders).has_value());
+    EXPECT_FALSE(analytics::median_order_notional(orders).has_value());
+    EXPECT_FALSE(analytics::avg_slippage_bps_for_limits(orders).has_value());
 }
 
 TEST(OrderAnalyticsTest, MedianOrderNotionalForOddCount)
@@ -114,7 +116,7 @@ TEST(OrderAnalyticsTest, MedianOrderNotionalForOddCount)
         make_order(OrderId{2}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 30),
         make_order(OrderId{3}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 20)};
 
-    const auto median = vertex::application::median_order_notional(orders);
+    const auto median = analytics::median_order_notional(orders);
     ASSERT_TRUE(median.has_value());
     EXPECT_DOUBLE_EQ(*median, 20.0);
 }
@@ -127,7 +129,7 @@ TEST(OrderAnalyticsTest, MedianOrderNotionalForEvenCount)
         make_order(OrderId{3}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 20),
         make_order(OrderId{4}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 40)};
 
-    const auto median = vertex::application::median_order_notional(orders);
+    const auto median = analytics::median_order_notional(orders);
     ASSERT_TRUE(median.has_value());
     EXPECT_DOUBLE_EQ(*median, 25.0);
 }
@@ -140,7 +142,7 @@ TEST(OrderAnalyticsTest, TopNByExecutedQuoteReturnsSortedTopWithTieBreak)
         make_order(OrderId{2}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 500),
         make_order(OrderId{4}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 100)};
 
-    const auto top = vertex::application::top_n_by_executed_quote(orders, 3);
+    const auto top = analytics::top_n_by_executed_quote(orders, 3);
     ASSERT_EQ(top.size(), 3U);
     EXPECT_EQ(top[0].first, OrderId{1});
     EXPECT_EQ(top[0].second, 500);
@@ -156,10 +158,10 @@ TEST(OrderAnalyticsTest, TopNByExecutedQuoteHandlesZeroAndOversizedN)
         make_order(OrderId{1}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 20),
         make_order(OrderId{2}, UserId{10}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 10)};
 
-    const auto none = vertex::application::top_n_by_executed_quote(orders, 0);
+    const auto none = analytics::top_n_by_executed_quote(orders, 0);
     EXPECT_TRUE(none.empty());
 
-    const auto all = vertex::application::top_n_by_executed_quote(orders, 100);
+    const auto all = analytics::top_n_by_executed_quote(orders, 100);
     ASSERT_EQ(all.size(), 2U);
     EXPECT_EQ(all[0].first, OrderId{1});
     EXPECT_EQ(all[1].first, OrderId{2});
@@ -172,12 +174,12 @@ TEST(OrderAnalyticsTest, ExecutedQuoteByMarketAndRankingWork)
         make_order(OrderId{2}, UserId{10}, btc_usdt(), Side::Sell, OrderType::LimitOrder, OrderStatus::Filled, 1, 200),
         make_order(OrderId{3}, UserId{11}, eth_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 150)};
 
-    const auto by_market = vertex::application::executed_quote_by_market(orders);
+    const auto by_market = analytics::executed_quote_by_market(orders);
     ASSERT_EQ(by_market.size(), 2U);
     EXPECT_EQ(by_market.at(btc_usdt()), 300);
     EXPECT_EQ(by_market.at(eth_usdt()), 150);
 
-    const auto ranked = vertex::application::rank_markets_by_volume(orders);
+    const auto ranked = analytics::rank_markets_by_volume(orders);
     ASSERT_EQ(ranked.size(), 2U);
     EXPECT_EQ(ranked[0].first, btc_usdt());
     EXPECT_EQ(ranked[0].second, 300);
@@ -194,7 +196,7 @@ TEST(OrderAnalyticsTest, AvgSlippageFiltersInputAndComputesValue)
         make_order(OrderId{4}, UserId{13}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 100, 1, 0, 100.0),     // filtered out
         make_order(OrderId{5}, UserId{14}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 100, 1, 100, std::nullopt)}; // filtered out
 
-    const auto slippage = vertex::application::avg_slippage_bps_for_limits(orders);
+    const auto slippage = analytics::avg_slippage_bps_for_limits(orders);
     ASSERT_TRUE(slippage.has_value());
     EXPECT_DOUBLE_EQ(*slippage, 100.0);
 }
@@ -205,5 +207,5 @@ TEST(OrderAnalyticsTest, AvgSlippageReturnsNulloptWhenNoValidLimitOrders)
         make_order(OrderId{1}, UserId{10}, btc_usdt(), Side::Buy, OrderType::MarketOrder, OrderStatus::Filled, 1, 100, 1, 100, 100.0),
         make_order(OrderId{2}, UserId{11}, btc_usdt(), Side::Buy, OrderType::LimitOrder, OrderStatus::Filled, 1, 100, 1, std::nullopt, 100.0)};
 
-    EXPECT_FALSE(vertex::application::avg_slippage_bps_for_limits(orders).has_value());
+    EXPECT_FALSE(analytics::avg_slippage_bps_for_limits(orders).has_value());
 }
