@@ -26,6 +26,7 @@ add_library(vertex_engine STATIC
     src/application/exchange/exchange_wallet.cpp
     src/application/trade_history.cpp
     src/application/order_meta_store.cpp
+    src/application/order_analytics.cpp
     src/application/order_history.cpp
     src/domain/user.cpp
     src/domain/wallet.cpp
