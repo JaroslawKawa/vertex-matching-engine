@@ -16,6 +16,10 @@ This document reflects the current implementation in `include/vertex/application
 
 `Exchange` does not do matching itself. Matching stays in engine workers.
 
+REST transport boundaries and integration decisions are documented in:
+
+- `docs/adr/0002-rest-api-transport-and-boundaries.md`
+
 ## Owned State
 
 - `accounts_`: `unordered_map<UserId, shared_ptr<Account>>`

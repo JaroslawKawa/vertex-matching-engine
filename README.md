@@ -188,6 +188,7 @@ Detailed documentation is available in:
 - `docs/benchmarks.md`
 - `docs/concurrency-test-matrix.md`
 - `docs/adr/0001-concurrency-model-and-invariants.md`
+- `docs/adr/0002-rest-api-transport-and-boundaries.md`
 
 Documentation is partially AI-assisted and manually reviewed to ensure consistency with the implementation.
 
